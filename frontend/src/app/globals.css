@@ -1,0 +1,19 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-space: "Space Grotesk", sans-serif;
+  --font-geist-sans: "IBM Plex Sans", sans-serif;
+}
+
+body {
+  @apply bg-panel text-ink antialiased;
+  background-image:
+    radial-gradient(circle at 10% 10%, rgba(13, 148, 136, 0.12), transparent 35%),
+    radial-gradient(circle at 90% 0%, rgba(15, 23, 42, 0.06), transparent 30%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  min-height: 100vh;
+}
