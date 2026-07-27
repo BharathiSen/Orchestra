@@ -7,7 +7,7 @@ Aligned with root `PLAN.md` — Orchestra v1.0 (10-day plan).
 | Day | Focus | Status |
 |-----|--------|--------|
 | **1** | Monorepo, Docker, FastAPI, JWT auth, Users/Projects, Login→Dashboard→Projects | **Complete** |
-| **2** | API design depth, Agent CRUD, Agent list UI | Planned |
+| **2** | API design, Agent CRUD, repository/service layers, Dashboard→Projects→Agent list | **Complete** |
 
 ## Phase 2 — AI Runtime (Days 3–5)
 
@@ -48,3 +48,12 @@ Prompt versioning → Model router → Guardrails → MCP → React Flow workflo
 - [x] Projects CRUD
 - [x] Frontend Login, Dashboard, Projects
 - [x] Docs updated from PLAN.md
+
+## Day 2 milestone checklist
+
+- [x] Agent model + schemas
+- [x] Agent repository + service layers
+- [x] Agent CRUD REST endpoints
+- [x] Dashboard project cards
+- [x] Project agent list + create/edit dialog
+- [x] Docs + interview notes for API/DB design

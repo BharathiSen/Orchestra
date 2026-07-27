@@ -43,16 +43,15 @@ export default function ProjectsPage() {
     setSaving(true);
     setError(null);
     try {
-      await api.createProject(token, {
+      const project = await api.createProject(token, {
         name,
         description: description || undefined,
       });
       setName("");
       setDescription("");
-      await loadProjects(token);
+      router.push(`/projects/${project.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to create project");
-    } finally {
       setSaving(false);
     }
   }
@@ -85,7 +84,7 @@ export default function ProjectsPage() {
           </p>
           <h1 className="mt-1 font-display text-3xl font-bold">Projects</h1>
           <p className="mt-1 text-slate-600">
-            CRUD workspace for Day 1 — agents come on Day 2.
+            Workspaces that hold your agents.
           </p>
         </div>
         <Link
@@ -136,32 +135,39 @@ export default function ProjectsPage() {
         </button>
       </form>
 
-      <section className="space-y-3">
+      <section className="grid gap-3 sm:grid-cols-2">
         {projects.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center text-slate-500">
+          <p className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center text-slate-500">
             No projects yet. Create your first workspace above.
           </p>
         ) : (
           projects.map((project) => (
             <article
               key={project.id}
-              className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 p-5"
+              className="rounded-2xl border border-slate-200 bg-white/80 p-5"
             >
-              <div>
-                <h3 className="font-display text-lg font-semibold">{project.name}</h3>
+              <Link href={`/projects/${project.id}`} className="block">
+                <h3 className="font-display text-lg font-semibold text-ink hover:text-accent">
+                  {project.name}
+                </h3>
                 <p className="mt-1 text-sm text-slate-600">
                   {project.description || "No description"}
                 </p>
-                <p className="mt-2 text-xs text-slate-400">
-                  Updated {new Date(project.updated_at).toLocaleString()}
-                </p>
+              </Link>
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <Link
+                  href={`/projects/${project.id}`}
+                  className="text-sm font-medium text-accent hover:underline"
+                >
+                  Open agents →
+                </Link>
+                <button
+                  onClick={() => onDelete(project.id)}
+                  className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                >
+                  Delete
+                </button>
               </div>
-              <button
-                onClick={() => onDelete(project.id)}
-                className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-              >
-                Delete
-              </button>
             </article>
           ))
         )}

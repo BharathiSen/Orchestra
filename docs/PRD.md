@@ -14,12 +14,13 @@ Orchestra is an AI-native development platform — similar in role to how GitHub
 2. Ship a portfolio-worthy platform with modular, observable architecture.
 3. Build incrementally: **platform first**, then AI runtime, knowledge, intelligence, production polish.
 
-## Non-goals (Day 1)
+## Non-goals (Days 1–2)
 
 - LangChain / LangGraph runtime
 - RAG, embeddings, vector DB
 - Tool calling, streaming, evaluation
 - Multi-agent workflows
+- Actual LLM execution (starts Day 3)
 
 ## Users
 
@@ -29,24 +30,30 @@ Orchestra is an AI-native development platform — similar in role to how GitHub
 | Portfolio reviewer | Clear architecture and running demo |
 | Future team | Extensible API and Docker setup |
 
-## Day 1 scope (must have)
+## Day 1 scope (done)
+
+Monorepo, Docker, JWT auth, Projects CRUD, Login → Dashboard → Projects.
+
+## Day 2 scope (must have)
 
 | Feature | Requirement |
 |---------|-------------|
-| Monorepo | `frontend/`, `backend/`, `docker/`, `docs/`, `database/` |
-| Infra | Docker Compose: Postgres, Redis, backend, frontend |
-| Auth | Signup, login, JWT, bcrypt password hashing |
-| Projects | Authenticated CRUD, owner-scoped |
-| UI | Login, Dashboard, Projects pages |
-| Docs | PRD, Architecture, Roadmap, Database, API, ADRs |
+| Agent model | Belongs to a project; name, prompt, model_name |
+| Layered backend | Repository + Service + API |
+| Agent CRUD API | POST/GET/PATCH/DELETE `/api/v1/agents` |
+| Ownership rules | Only via owned projects; invalid project → error |
+| UI | Dashboard project cards → Agent list → Create/Edit dialog |
+| Docs | Architecture, Database, API, ADRs, Interview notes updated |
 
-## Success criteria
+## Success criteria (Day 2)
 
-- `docker compose up` brings the stack online
-- User can sign up / log in and receive a JWT
-- User can create, list, and delete their projects
-- Flow works end-to-end: Login → Dashboard → Projects
+- User logs in and sees only their projects
+- User creates / edits / deletes agents under a project
+- Invalid JWT → 401
+- Non-existent / foreign project_id → 404
+- Invalid input → 422
+- Flow: Login → Dashboard → Project → Agent list
 
 ## Out of scope until later days
 
-See `ROADMAP.md` and root `PLAN.md` (Days 2–10 + v2).
+See `ROADMAP.md` and root `PLAN.md` (Days 3–10 + v2).

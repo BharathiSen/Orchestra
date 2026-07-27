@@ -17,7 +17,7 @@ async def lifespan(_: FastAPI):
     try:
         redis.ping()
     except Exception:
-        # Redis is provisioned on Day 1 for infra readiness; not required for auth/projects.
+        # Redis is provisioned for later memory/sessions; not required for Day 1–2 CRUD.
         pass
     yield
 

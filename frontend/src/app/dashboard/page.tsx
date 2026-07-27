@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { api, type User } from "@/lib/api";
+import { api, type Agent, type Project, type User } from "@/lib/api";
 import { clearSession, getStoredUser, getToken } from "@/lib/auth";
 
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [agentCounts, setAgentCounts] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,9 +24,16 @@ export default function DashboardPage() {
     const cached = getStoredUser();
     if (cached) setUser(cached);
 
-    api
-      .me(token)
-      .then((me) => setUser(me))
+    Promise.all([api.me(token), api.listProjects(token), api.listAgents(token)])
+      .then(([me, projectList, agents]) => {
+        setUser(me);
+        setProjects(projectList);
+        const counts: Record<number, number> = {};
+        for (const agent of agents as Agent[]) {
+          counts[agent.project_id] = (counts[agent.project_id] || 0) + 1;
+        }
+        setAgentCounts(counts);
+      })
       .catch(() => {
         clearSession();
         router.replace("/login");
@@ -54,46 +63,83 @@ export default function DashboardPage() {
           </p>
           <h1 className="mt-1 font-display text-3xl font-bold">Dashboard</h1>
           <p className="mt-1 text-slate-600">
-            Welcome{user?.full_name ? `, ${user.full_name}` : ""} — platform foundation is live.
+            Welcome{user?.full_name ? `, ${user.full_name}` : ""} — projects and
+            agents.
           </p>
         </div>
-        <button
-          onClick={logout}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
-        >
-          Log out
-        </button>
-      </header>
-
-      <section className="grid gap-4 md:grid-cols-2">
-        <article className="rounded-2xl border border-slate-200 bg-white/80 p-6">
-          <h2 className="font-display text-xl font-semibold">Projects</h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Create and manage workspaces that will later hold agents, tools, and
-            knowledge bases.
-          </p>
+        <div className="flex gap-2">
           <Link
             href="/projects"
-            className="mt-4 inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
           >
-            Open projects
+            Manage projects
           </Link>
-        </article>
+          <button
+            onClick={logout}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+          >
+            Log out
+          </button>
+        </div>
+      </header>
 
-        <article className="rounded-2xl border border-slate-200 bg-white/80 p-6">
-          <h2 className="font-display text-xl font-semibold">Account</h2>
-          <dl className="mt-3 space-y-2 text-sm">
-            <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">Email</dt>
-              <dd className="font-medium">{user?.email}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">User ID</dt>
-              <dd className="font-medium">{user?.id}</dd>
-            </div>
-          </dl>
-        </article>
+      <section className="mb-6 flex items-end justify-between gap-4">
+        <div>
+          <h2 className="font-display text-xl font-semibold">Your projects</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Open a project to create and manage agents.
+          </p>
+        </div>
+        <Link
+          href="/projects"
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+        >
+          New project
+        </Link>
       </section>
+
+      {projects.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-10 text-center text-slate-500">
+          No projects yet.{" "}
+          <Link href="/projects" className="text-accent underline">
+            Create your first project
+          </Link>
+          .
+        </p>
+      ) : (
+        <section className="grid gap-4 sm:grid-cols-2">
+          {projects.map((project) => (
+            <Link
+              key={project.id}
+              href={`/projects/${project.id}`}
+              className="rounded-2xl border border-slate-200 bg-white/80 p-6 transition hover:border-accent hover:shadow-sm"
+            >
+              <h3 className="font-display text-lg font-semibold">{project.name}</h3>
+              <p className="mt-2 line-clamp-2 text-sm text-slate-600">
+                {project.description || "No description"}
+              </p>
+              <p className="mt-4 text-xs font-medium text-slate-500">
+                {agentCounts[project.id] || 0} agent
+                {(agentCounts[project.id] || 0) === 1 ? "" : "s"}
+              </p>
+            </Link>
+          ))}
+        </section>
+      )}
+
+      <article className="mt-8 rounded-2xl border border-slate-200 bg-white/80 p-6">
+        <h2 className="font-display text-lg font-semibold">Account</h2>
+        <dl className="mt-3 space-y-2 text-sm">
+          <div className="flex justify-between gap-4">
+            <dt className="text-slate-500">Email</dt>
+            <dd className="font-medium">{user?.email}</dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-slate-500">User ID</dt>
+            <dd className="font-medium">{user?.id}</dd>
+          </div>
+        </dl>
+      </article>
     </main>
   );
 }

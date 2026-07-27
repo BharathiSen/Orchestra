@@ -48,3 +48,17 @@
 **Context**: Engineering study notes should not be public.  
 **Decision**: `docs/INTERVIEW_NOTES.md` is gitignored; commit `INTERVIEW_NOTES.example.md` as a template only.  
 **Consequences**: Personal Q&A and debug logs never push to remote.
+
+## ADR-008: Repository + Service layers for Agents (Day 2)
+
+**Status**: Accepted  
+**Context**: Agent CRUD needs clear ownership rules and will grow into tools/RAG/execution. Fat route handlers become unmaintainable.  
+**Decision**: Split into `repositories/` (SQL only), `services/` (business rules), `api/v1/` (HTTP).  
+**Consequences**: Slightly more files Day 2; much easier to test and extend on Days 3–10.
+
+## ADR-009: Agents nest under Projects
+
+**Status**: Accepted  
+**Context**: PLAN.md Day 2 introduces Agents under the project workspace.  
+**Decision**: `agents.project_id` FK; authorize by `project.owner_id == current_user.id`. No direct `owner_id` on agents.  
+**Consequences**: Deleting a project cascades agents; moving agents between projects is a PATCH of `project_id` with ownership checks.

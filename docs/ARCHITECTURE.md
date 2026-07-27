@@ -1,62 +1,95 @@
-# Architecture — Day 1 Foundation
+# Architecture — Days 1–2 Platform Foundation
 
 ## Principle
 
-**Build the software platform before the AI.** Day 1 has no LLM calls. It establishes auth, tenancy (projects), persistence, and local orchestration via Docker.
+**Build the software platform before the AI.** Days 1–2 have no LLM calls. They establish auth, projects, agents (definitions only), persistence, and layered API design.
 
-## High-level diagram
+## High-level diagram (Day 2)
 
 ```text
-┌─────────────────┐         REST          ┌─────────────────┐
-│  Next.js 15 UI  │ ────────────────────► │  FastAPI /api/v1│
-│  :3000          │ ◄──────────────────── │  :8000          │
-└─────────────────┘                       └────────┬────────┘
-                                                   │
-                          ┌────────────────────────┼────────────────────────┐
-                          │                        │                        │
-                          ▼                        ▼                        ▼
-                   ┌─────────────┐          ┌─────────────┐          ┌─────────────┐
-                   │ PostgreSQL  │          │    Redis    │          │  (future)   │
-                   │ users,      │          │ provisioned │          │ Vector DB   │
-                   │ projects    │          │ Day 1       │          │             │
-                   └─────────────┘          └─────────────┘          └─────────────┘
+             Browser
+                │
+        Next.js Dashboard
+                │
+          REST API Calls
+                │
+            FastAPI
+      ┌─────────┴─────────┐
+      ▼                   ▼
+ Authentication      Agent Service
+      │                   │
+      └─────────┬─────────┘
+                ▼
+           PostgreSQL
 ```
+
+Redis remains provisioned for Day 8 memory — not used in agent CRUD.
+
+## Request layers (why repository + service?)
+
+```text
+API (agents.py)        → HTTP in/out, status codes, Depends(JWT)
+Service (agent_service) → Business rules (ownership, project exists)
+Repository (agent_repo) → SQLAlchemy queries only
+Model (Agent)           → Table mapping
+```
+
+| Layer | Responsibility |
+|-------|----------------|
+| **Repository** | Database operations only (`create`, `get`, `list`, `update`, `delete`) |
+| **Service** | Business logic (agent belongs to user via project; reject bad project ids) |
+| **API** | HTTP request/response handling |
+
+This keeps the codebase maintainable as Orchestra grows into tools, RAG, and LangGraph.
 
 ## Components
 
-| Component | Role on Day 1 |
-|-----------|----------------|
-| **Frontend** | Login/signup, dashboard, project CRUD UI; JWT in `localStorage` (host port **13000** by default) |
-| **Backend** | FastAPI routers under `/api/v1`; JWT auth dependency; SQLAlchemy models (host port **18000**) |
-| **PostgreSQL** | Source of truth for users and projects (host **5432**) |
-| **Redis** | Connected and health-checked; ready for session/memory on Day 8 (host publish **6380**) |
-| **Docker Compose** | Single-command local production-like stack |
+| Component | Role |
+|-----------|------|
+| **Frontend** | Login, dashboard project cards, project detail + agent list, create/edit dialog |
+| **Backend** | FastAPI `/api/v1` — auth, projects, agents |
+| **PostgreSQL** | `users`, `projects`, `agents` |
+| **Redis** | Online; unused for CRUD |
+| **Docker Compose** | Local stack |
 
-## Backend module layout
+## Backend module layout (Day 2)
 
 ```text
 backend/app/
-├── main.py              # FastAPI app, CORS, lifespan (create tables)
-├── core/                # config, database, security, redis
-├── models/              # User, Project
-├── schemas/             # Pydantic request/response models
-└── api/
-    ├── deps.py          # get_current_user
-    └── v1/
-        ├── auth.py
-        └── projects.py
+├── api/v1/
+│   ├── auth.py
+│   ├── projects.py
+│   └── agents.py
+├── models/
+│   ├── user.py
+│   ├── project.py
+│   └── agent.py
+├── schemas/
+│   ├── user.py
+│   ├── project.py
+│   └── agent.py
+├── services/
+│   └── agent_service.py
+├── repositories/
+│   └── agent_repository.py
+└── core/
 ```
 
-## Auth flow
+## Create-agent data flow
 
 ```text
-Signup/Login → bcrypt verify/hash → JWT (sub=user_id) → Bearer on subsequent requests
+Frontend
+  → POST /api/v1/agents
+  → JWT verification
+  → Validate request (Pydantic)
+  → Service: project exists + owned by user
+  → Repository: insert into PostgreSQL
+  → Return AgentResponse
+  → Frontend updates UI
 ```
 
-## Project ownership
+## Ownership model
 
-Every project has `owner_id`. List/get/update/delete only succeed for the authenticated owner (others get 404).
-
-## Future (not Day 1)
-
-LangGraph runtime, WebSockets, pgvector/Qdrant, execution traces — attach under the same project boundary.
+- User owns Projects (`projects.owner_id`)
+- Project owns Agents (`agents.project_id`)
+- Agent access is authorized by walking Agent → Project → owner_id == current user

@@ -14,6 +14,17 @@ export type Project = {
   updated_at: string;
 };
 
+export type Agent = {
+  id: number;
+  name: string;
+  description: string | null;
+  system_prompt: string;
+  model_name: string;
+  project_id: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AuthResponse = {
   access_token: string;
   token_type: string;
@@ -55,7 +66,9 @@ async function request<T>(
       const data = await response.json();
       detail = data.detail || detail;
       if (Array.isArray(detail)) {
-        detail = detail.map((item) => item.msg || JSON.stringify(item)).join(", ");
+        detail = detail
+          .map((item) => item.msg || JSON.stringify(item))
+          .join(", ");
       }
     } catch {
       // ignore parse errors
@@ -84,6 +97,8 @@ export const api = {
   me: (token: string) => request<User>("/api/v1/auth/me", {}, token),
   listProjects: (token: string) =>
     request<Project[]>("/api/v1/projects", {}, token),
+  getProject: (token: string, id: number) =>
+    request<Project>(`/api/v1/projects/${id}`, {}, token),
   createProject: (
     token: string,
     body: { name: string; description?: string },
@@ -105,4 +120,45 @@ export const api = {
     ),
   deleteProject: (token: string, id: number) =>
     request<void>(`/api/v1/projects/${id}`, { method: "DELETE" }, token),
+
+  listAgents: (token: string, projectId?: number) => {
+    const query =
+      projectId !== undefined ? `?project_id=${projectId}` : "";
+    return request<Agent[]>(`/api/v1/agents${query}`, {}, token);
+  },
+  getAgent: (token: string, id: number) =>
+    request<Agent>(`/api/v1/agents/${id}`, {}, token),
+  createAgent: (
+    token: string,
+    body: {
+      name: string;
+      project_id: number;
+      description?: string;
+      system_prompt?: string;
+      model_name?: string;
+    },
+  ) =>
+    request<Agent>(
+      "/api/v1/agents",
+      { method: "POST", body: JSON.stringify(body) },
+      token,
+    ),
+  updateAgent: (
+    token: string,
+    id: number,
+    body: {
+      name?: string;
+      description?: string;
+      system_prompt?: string;
+      model_name?: string;
+      project_id?: number;
+    },
+  ) =>
+    request<Agent>(
+      `/api/v1/agents/${id}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+      token,
+    ),
+  deleteAgent: (token: string, id: number) =>
+    request<void>(`/api/v1/agents/${id}`, { method: "DELETE" }, token),
 };

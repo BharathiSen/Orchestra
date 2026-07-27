@@ -31,6 +31,30 @@ The objective is to learn modern AI Engineering by building a production-ready p
 
 ---
 
+# 🚀 Quick start
+
+```bash
+cp .env.example .env
+cd docker
+docker compose --env-file ../.env up --build
+```
+
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:13000 |
+| API docs | http://localhost:18000/docs |
+| Health | http://localhost:18000/health |
+
+**Login:** there is **no default admin**. Use **Sign up** on the login page to create your own account (password min 8 characters), then sign in with those credentials.
+
+**Progress so far**
+- Day 1: Auth (JWT), Projects, Docker stack
+- Day 2: Agent CRUD, dashboard project cards, repository/service layers
+
+Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/manual_testing.md`) are gitignored — use `docs/TESTING.md` for the shared checklist.
+
+---
+
 # ✨ Core Features
 
 ## Platform
@@ -161,11 +185,12 @@ The objective is to learn modern AI Engineering by building a production-ready p
 
 ## Phase 1
 
-- Authentication
+- Authentication (JWT)
 - Projects
-- Dashboard
+- Agents (CRUD)
+- Dashboard + project cards
 - Docker
-- JWT
+- Repository / service layers
 
 ---
 

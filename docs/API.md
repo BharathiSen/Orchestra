@@ -1,6 +1,6 @@
-# API Contracts — Day 1
+# API Contracts — Days 1–2
 
-Base URL (Docker Day 1 defaults): `http://localhost:18000`  
+Base URL (Docker defaults on this machine): `http://localhost:18000`  
 API prefix: `/api/v1`  
 Interactive docs: `/docs`
 
@@ -67,42 +67,78 @@ Authorization: Bearer <access_token>
 
 ### `GET /api/v1/auth/me`
 
-**Auth required**
-
-**Response 200** — `UserOut`
+**Auth required** — **Response 200** `UserOut`
 
 ---
 
 ## Projects
 
-All project routes require Bearer JWT. Results are scoped to the current user.
+All project routes require Bearer JWT. Scoped to current user.
 
-### `POST /api/v1/projects`
+| Method | Path | Notes |
+|--------|------|--------|
+| POST | `/api/v1/projects` | Create |
+| GET | `/api/v1/projects` | List own |
+| GET | `/api/v1/projects/{id}` | Get one |
+| PATCH | `/api/v1/projects/{id}` | Update |
+| DELETE | `/api/v1/projects/{id}` | Delete (204) |
 
-```json
-{ "name": "Support bots", "description": "Day 1 workspace" }
-```
-
-**Response 201** — `ProjectOut`
-
-### `GET /api/v1/projects`
-
-**Response 200** — `ProjectOut[]` (newest first)
-
-### `GET /api/v1/projects/{id}`
-
-**Response 200** — `ProjectOut`  
-**404** if missing or not owned
-
-### `PATCH /api/v1/projects/{id}`
+**POST body**
 
 ```json
-{ "name": "Updated name", "description": "Optional" }
+{ "name": "Support bots", "description": "Workspace" }
 ```
 
-### `DELETE /api/v1/projects/{id}`
+---
 
-**Response 204** No Content
+## Agents (Day 2)
+
+All agent routes require Bearer JWT. Access is authorized via project ownership.
+
+| Method | Path | Notes |
+|--------|------|--------|
+| POST | `/api/v1/agents` | Create |
+| GET | `/api/v1/agents` | List (optional `?project_id=`) |
+| GET | `/api/v1/agents/{id}` | Get one |
+| PATCH | `/api/v1/agents/{id}` | Update |
+| DELETE | `/api/v1/agents/{id}` | Delete (204) |
+
+### `POST /api/v1/agents`
+
+```json
+{
+  "name": "Research assistant",
+  "project_id": 1,
+  "description": "Finds sources",
+  "system_prompt": "You are a careful researcher.",
+  "model_name": "gpt-4o-mini"
+}
+```
+
+**Response 201** — `AgentResponse`
+
+**Errors**
+- `401` missing/invalid JWT
+- `404` project not found or not owned
+- `422` validation (missing name, invalid types)
+
+### `GET /api/v1/agents?project_id=1`
+
+Filter to one project. Without query — all agents across the user’s projects.
+
+### `PATCH /api/v1/agents/{id}`
+
+```json
+{
+  "name": "Updated name",
+  "system_prompt": "New instructions",
+  "model_name": "gpt-4o-mini"
+}
+```
+
+### `DELETE /api/v1/agents/{id}`
+
+**204** No Content
 
 ---
 
