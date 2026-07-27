@@ -1,0 +1,443 @@
+"use client";
+
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+
+import {
+  ApiError,
+  api,
+  streamChat,
+  type Agent,
+  type ChatMessage,
+  type ChatModel,
+  type Conversation,
+  type Project,
+} from "@/lib/api";
+import { clearSession, getToken } from "@/lib/auth";
+
+type UiMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+};
+
+export default function ProjectChatPage() {
+  const router = useRouter();
+  const params = useParams<{ id: string }>();
+  const projectId = Number(params.id);
+
+  const [token, setToken] = useState<string | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<number | null>(
+    null,
+  );
+  const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [models, setModels] = useState<ChatModel[]>([]);
+  const [llmConfigured, setLlmConfigured] = useState(true);
+  const [provider, setProvider] = useState("groq");
+  const [model, setModel] = useState("llama-3.1-8b-instant");
+  const [agentId, setAgentId] = useState<number | "">("");
+  const [temperature, setTemperature] = useState(0.2);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  const selectedAgent = agents.find((a) => a.id === agentId);
+
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const refreshConversations = useCallback(
+    async (authToken: string) => {
+      const list = await api.listConversations(authToken, projectId);
+      setConversations(list);
+      return list;
+    },
+    [projectId],
+  );
+
+  const loadConversationMessages = useCallback(
+    async (authToken: string, conversationId: number) => {
+      const rows = await api.listMessages(authToken, conversationId);
+      setMessages(
+        rows
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m: ChatMessage) => ({
+            id: String(m.id),
+            role: m.role as "user" | "assistant",
+            content: m.content,
+          })),
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!Number.isFinite(projectId)) {
+      router.replace("/projects");
+      return;
+    }
+    const authToken = getToken();
+    if (!authToken) {
+      router.replace("/login");
+      return;
+    }
+    setToken(authToken);
+
+    Promise.all([
+      api.getProject(authToken, projectId),
+      api.listAgents(authToken, projectId),
+      api.listConversations(authToken, projectId),
+      api.listModels(authToken),
+    ])
+      .then(([projectData, agentList, conversationList, modelData]) => {
+        setProject(projectData);
+        setAgents(agentList);
+        setConversations(conversationList);
+        setModels(modelData.models);
+        setLlmConfigured(
+          modelData.llm_configured ?? modelData.gemini_configured,
+        );
+        setProvider(modelData.provider || "groq");
+        if (modelData.models.length > 0) {
+          setModel(modelData.models[0].id);
+        }
+        if (conversationList.length > 0) {
+          setActiveConversationId(conversationList[0].id);
+        }
+      })
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) {
+          clearSession();
+          router.replace("/login");
+          return;
+        }
+        setError(err instanceof ApiError ? err.message : "Failed to load chat");
+      })
+      .finally(() => setLoading(false));
+  }, [projectId, router]);
+
+  useEffect(() => {
+    if (!token || !activeConversationId) {
+      setMessages([]);
+      return;
+    }
+    loadConversationMessages(token, activeConversationId).catch((err) => {
+      setError(err instanceof ApiError ? err.message : "Failed to load messages");
+    });
+  }, [token, activeConversationId, loadConversationMessages]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, sending]);
+
+  async function onNewChat() {
+    setActiveConversationId(null);
+    setMessages([]);
+    setError(null);
+  }
+
+  async function onSelectConversation(id: number) {
+    setActiveConversationId(id);
+    setError(null);
+  }
+
+  async function onDeleteConversation(id: number) {
+    if (!token) return;
+    try {
+      await api.deleteConversation(token, id);
+      const list = await refreshConversations(token);
+      if (activeConversationId === id) {
+        setActiveConversationId(list[0]?.id ?? null);
+        if (!list[0]) setMessages([]);
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to delete conversation");
+    }
+  }
+
+  async function onSend(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !input.trim() || sending) return;
+
+    const userText = input.trim();
+    setInput("");
+    setSending(true);
+    setError(null);
+
+    const optimisticUser: UiMessage = {
+      id: `local-user-${Date.now()}`,
+      role: "user",
+      content: userText,
+    };
+    const assistantId = `local-assistant-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      optimisticUser,
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
+
+    try {
+      await streamChat(
+        token,
+        {
+          project_id: projectId,
+          message: userText,
+          conversation_id: activeConversationId,
+          agent_id: agentId === "" ? null : agentId,
+          model,
+          temperature,
+          system_prompt: selectedAgent?.system_prompt || undefined,
+        },
+        {
+          onMeta: ({ conversation_id }) => {
+            setActiveConversationId(conversation_id);
+          },
+          onToken: (tokenText) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: m.content + tokenText }
+                  : m,
+              ),
+            );
+          },
+          onError: (detail) => {
+            setError(detail);
+          },
+          onDone: async () => {
+            await refreshConversations(token);
+            if (activeConversationId) {
+              await loadConversationMessages(token, activeConversationId);
+            }
+          },
+        },
+      );
+
+      // Reload from DB so ids match persisted rows
+      const list = await refreshConversations(token);
+      const currentId =
+        activeConversationId ??
+        list.find((c) => c.title.includes(userText.slice(0, 20)))?.id ??
+        list[0]?.id ??
+        null;
+      if (currentId) {
+        setActiveConversationId(currentId);
+        await loadConversationMessages(token, currentId);
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Chat failed");
+      setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-6">
+        <p className="text-slate-500">Loading chat...</p>
+      </main>
+    );
+  }
+
+  if (!project) return null;
+
+  return (
+    <main className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 md:px-6">
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">
+            Orchestra
+          </p>
+          <h1 className="mt-1 font-display text-2xl font-bold md:text-3xl">
+            Chat · {project.name}
+          </h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Day 3 — streaming LLM chat with conversation history.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/projects/${projectId}`}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+          >
+            Agents
+          </Link>
+          <Link
+            href="/dashboard"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+          >
+            Dashboard
+          </Link>
+        </div>
+      </header>
+
+      {!llmConfigured && (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          LLM provider <code>{provider}</code> is not configured. For free
+          testing set <code>LLM_PROVIDER=groq</code> and{" "}
+          <code>GROQ_API_KEY</code> (or use <code>ollama</code>). For production
+          use <code>LLM_PROVIDER=gemini</code> + <code>GEMINI_API_KEY</code>,
+          then restart the backend.
+        </p>
+      )}
+      {llmConfigured && (
+        <p className="mb-4 text-xs text-slate-500">
+          Active provider: <span className="font-medium">{provider}</span>
+        </p>
+      )}
+
+      {error && (
+        <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+
+      <div className="grid min-h-[70vh] flex-1 gap-4 lg:grid-cols-[240px_1fr]">
+        <aside className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-700">Conversations</h2>
+            <button
+              type="button"
+              onClick={onNewChat}
+              className="rounded-md bg-ink px-2 py-1 text-xs font-medium text-white"
+            >
+              New
+            </button>
+          </div>
+          <ul className="space-y-1">
+            {conversations.length === 0 && (
+              <li className="px-2 py-3 text-xs text-slate-500">No chats yet.</li>
+            )}
+            {conversations.map((c) => (
+              <li key={c.id}>
+                <div
+                  className={`flex items-center gap-1 rounded-lg px-2 py-2 text-sm ${
+                    activeConversationId === c.id
+                      ? "bg-teal-50 text-teal-900"
+                      : "hover:bg-slate-50"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 truncate text-left"
+                    onClick={() => onSelectConversation(c.id)}
+                  >
+                    {c.title}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-red-600"
+                    onClick={() => onDeleteConversation(c.id)}
+                    aria-label="Delete conversation"
+                  >
+                    ×
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </aside>
+
+        <section className="flex flex-col rounded-2xl border border-slate-200 bg-white/80">
+          <div className="flex flex-wrap gap-3 border-b border-slate-200 p-3">
+            <label className="text-xs text-slate-600">
+              Model
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-slate-600">
+              Agent (system prompt)
+              <select
+                value={agentId}
+                onChange={(e) =>
+                  setAgentId(e.target.value ? Number(e.target.value) : "")
+                }
+                className="mt-1 block max-w-[220px] rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+              >
+                <option value="">Default mentor prompt</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-slate-600">
+              Temperature ({temperature.toFixed(1)})
+              <input
+                type="range"
+                min={0}
+                max={1.5}
+                step={0.1}
+                value={temperature}
+                onChange={(e) => setTemperature(Number(e.target.value))}
+                className="mt-2 block w-40"
+              />
+            </label>
+          </div>
+
+          <div className="flex-1 space-y-3 overflow-y-auto p-4">
+            {messages.length === 0 && (
+              <p className="text-center text-sm text-slate-500">
+                Ask anything — responses stream token by token.
+              </p>
+            )}
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap ${
+                  m.role === "user"
+                    ? "ml-auto bg-ink text-white"
+                    : "bg-slate-100 text-slate-800"
+                }`}
+              >
+                <p className="mb-1 text-[10px] font-semibold tracking-wide uppercase opacity-70">
+                  {m.role}
+                </p>
+                {m.content || (sending ? "…" : "")}
+              </div>
+            ))}
+            <div ref={bottomRef} />
+          </div>
+
+          <form onSubmit={onSend} className="border-t border-slate-200 p-3">
+            <div className="flex gap-2">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                rows={2}
+                placeholder="Explain JWT authentication..."
+                className="min-h-[48px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-accent focus:ring-2"
+                disabled={sending}
+              />
+              <button
+                type="submit"
+                disabled={sending || !input.trim()}
+                className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+              >
+                {sending ? "…" : "Send"}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </main>
+  );
+}

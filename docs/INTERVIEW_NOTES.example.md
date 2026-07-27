@@ -1,33 +1,25 @@
-# Interview / Engineering Notes (template)
+# Interview Notes Template (Do Not Put Secrets)
 
-Copy this file locally (the real notes file is gitignored):
-
-```bash
-cp docs/INTERVIEW_NOTES.example.md docs/INTERVIEW_NOTES.md
-```
-
-`docs/INTERVIEW_NOTES.md` must **never** be pushed.
+This file is the public template for local interview prep notes.
 
 ## How to use
 
-After each day, add:
+1. Copy this file to `docs/INTERVIEW_NOTES.md` locally.
+2. Keep `docs/INTERVIEW_NOTES.md` gitignored.
+3. Record architecture rationale, debugging stories, and tradeoffs.
 
-1. What you implemented
-2. How it works (in your words)
-3. Interview Q&A
-4. Commands / gotchas
+## Suggested sections
 
-## Day N — Title
+- Day-wise implementation summary
+- Why specific architecture decisions were made
+- Failure cases and how they were fixed
+- Testing evidence (API + UI)
+- Security and production hardening follow-ups
 
-### Implemented
-- ...
+## Example prompts to prepare
 
-### How it works
-- ...
-
-### Q&A
-**Q:** ...  
-**A:** ...
-
-### Gotchas
-- ...
+- Explain JWT auth flow from frontend to backend.
+- Why use repository/service layers in FastAPI?
+- How does SSE streaming improve chat UX?
+- How are conversations/messages modeled and persisted?
+- How does provider abstraction (Gemini/Groq/Ollama) reduce vendor lock-in?

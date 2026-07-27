@@ -25,6 +25,30 @@ export type Agent = {
   updated_at: string;
 };
 
+export type Conversation = {
+  id: number;
+  project_id: number;
+  agent_id: number | null;
+  title: string;
+  model_name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChatMessage = {
+  id: number;
+  conversation_id: number;
+  role: string;
+  content: string;
+  created_at: string;
+};
+
+export type ChatModel = {
+  id: string;
+  label: string;
+  description: string;
+};
+
 export type AuthResponse = {
   access_token: string;
   token_type: string;
@@ -81,6 +105,113 @@ async function request<T>(
   }
 
   return response.json() as Promise<T>;
+}
+
+export type ChatStreamHandlers = {
+  onMeta?: (data: { conversation_id: number; title: string }) => void;
+  onUserMessage?: (data: ChatMessage) => void;
+  onToken?: (token: string) => void;
+  onDone?: (data: { message_id: number; conversation_id: number }) => void;
+  onError?: (detail: string) => void;
+};
+
+export async function streamChat(
+  token: string,
+  body: {
+    project_id: number;
+    message: string;
+    conversation_id?: number | null;
+    agent_id?: number | null;
+    model?: string;
+    temperature?: number;
+    system_prompt?: string;
+  },
+  handlers: ChatStreamHandlers,
+): Promise<void> {
+  const response = await fetch(`${API_URL}/api/v1/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let detail = "Chat request failed";
+    try {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  if (!response.body) {
+    throw new ApiError(500, "No response body from chat stream");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+
+    for (const part of parts) {
+      const line = part
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      const jsonText = line.replace(/^data:\s*/, "");
+      try {
+        const event = JSON.parse(jsonText) as {
+          type: string;
+          conversation_id?: number;
+          title?: string;
+          id?: number;
+          role?: string;
+          content?: string;
+          message_id?: number;
+          detail?: string;
+          created_at?: string;
+        };
+
+        if (event.type === "meta" && event.conversation_id != null) {
+          handlers.onMeta?.({
+            conversation_id: event.conversation_id,
+            title: event.title || "New conversation",
+          });
+        } else if (event.type === "user_message" && event.id != null) {
+          handlers.onUserMessage?.({
+            id: event.id,
+            conversation_id: event.conversation_id || 0,
+            role: event.role || "user",
+            content: event.content || "",
+            created_at: event.created_at || new Date().toISOString(),
+          });
+        } else if (event.type === "token" && event.content) {
+          handlers.onToken?.(event.content);
+        } else if (event.type === "done" && event.conversation_id != null) {
+          handlers.onDone?.({
+            message_id: event.message_id || 0,
+            conversation_id: event.conversation_id,
+          });
+        } else if (event.type === "error") {
+          handlers.onError?.(event.detail || "Chat stream error");
+        }
+      } catch {
+        // skip malformed SSE chunks
+      }
+    }
+  }
 }
 
 export const api = {
@@ -161,4 +292,42 @@ export const api = {
     ),
   deleteAgent: (token: string, id: number) =>
     request<void>(`/api/v1/agents/${id}`, { method: "DELETE" }, token),
+
+  listModels: (token: string) =>
+    request<{
+      models: ChatModel[];
+      gemini_configured: boolean;
+      llm_configured?: boolean;
+      provider?: string;
+    }>("/api/v1/chat/models", {}, token),
+  listConversations: (token: string, projectId: number) =>
+    request<Conversation[]>(
+      `/api/v1/conversations?project_id=${projectId}`,
+      {},
+      token,
+    ),
+  getConversation: (token: string, id: number) =>
+    request<Conversation>(`/api/v1/conversations/${id}`, {}, token),
+  createConversation: (
+    token: string,
+    body: {
+      project_id: number;
+      title?: string;
+      agent_id?: number | null;
+      model_name?: string;
+    },
+  ) =>
+    request<Conversation>(
+      "/api/v1/conversations",
+      { method: "POST", body: JSON.stringify(body) },
+      token,
+    ),
+  deleteConversation: (token: string, id: number) =>
+    request<void>(`/api/v1/conversations/${id}`, { method: "DELETE" }, token),
+  listMessages: (token: string, conversationId: number) =>
+    request<ChatMessage[]>(
+      `/api/v1/conversations/${conversationId}/messages`,
+      {},
+      token,
+    ),
 };

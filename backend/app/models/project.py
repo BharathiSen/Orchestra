@@ -31,3 +31,8 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    conversations: Mapped[list["Conversation"]] = relationship(
+        "Conversation",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )

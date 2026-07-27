@@ -1,4 +1,13 @@
 from app.schemas.agent import AgentCreate, AgentResponse, AgentUpdate
+from app.schemas.chat import (
+    ChatRequest,
+    ConversationCreate,
+    ConversationResponse,
+    ConversationUpdate,
+    MessageResponse,
+    ModelInfo,
+    ModelsResponse,
+)
 from app.schemas.project import ProjectCreate, ProjectOut, ProjectUpdate
 from app.schemas.user import TokenOut, UserCreate, UserLogin, UserOut
 
@@ -13,4 +22,11 @@ __all__ = [
     "AgentCreate",
     "AgentUpdate",
     "AgentResponse",
+    "ConversationCreate",
+    "ConversationUpdate",
+    "ConversationResponse",
+    "MessageResponse",
+    "ChatRequest",
+    "ModelInfo",
+    "ModelsResponse",
 ]

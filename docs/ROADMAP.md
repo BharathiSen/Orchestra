@@ -11,11 +11,11 @@ Aligned with root `PLAN.md` — Orchestra v1.0 (10-day plan).
 
 ## Phase 2 — AI Runtime (Days 3–5)
 
-| Day | Focus |
-|-----|--------|
-| 3 | LLM chat, streaming, conversations/messages |
-| 4 | Tool calling (calculator, weather, search, custom) |
-| 5 | LangGraph planner → tool → reviewer → answer |
+| Day | Focus | Status |
+|-----|--------|--------|
+| **3** | LLM chat, streaming, conversations/messages, model selection | **Complete** |
+| 4 | Tool calling (calculator, weather, search, custom) | Planned |
+| 5 | LangGraph planner → tool → reviewer → answer | Planned |
 
 ## Phase 3 — Knowledge Layer (Days 6–7)
 
@@ -57,3 +57,12 @@ Prompt versioning → Model router → Guardrails → MCP → React Flow workflo
 - [x] Dashboard project cards
 - [x] Project agent list + create/edit dialog
 - [x] Docs + interview notes for API/DB design
+
+## Day 3 milestone checklist
+
+- [x] Conversation + Message models
+- [x] Gemini chat completions service
+- [x] Streaming `POST /chat` (SSE)
+- [x] Conversation/message APIs
+- [x] Chat UI with model selector + history
+- [x] Docs / testing / interview notes updated

@@ -1,61 +1,35 @@
-# Orchestra — Manual testing (Days 1–2)
+# Shared Testing Checklist (Days 1-3)
 
-Shared checklist for verifying the platform foundation.  
-Local scratch notes may live in `manual_testing.md` (gitignored).
+Use this checklist before creating a PR.
 
-## URLs
+## Day 1 - Platform Foundation
 
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:13000 |
-| Swagger | http://localhost:18000/docs |
-| Health | http://localhost:18000/health |
+- [ ] Docker services start (`frontend`, `backend`, `postgres`, `redis`)
+- [ ] `GET /health` returns `{ "status": "ok" }`
+- [ ] Signup works (`POST /api/v1/auth/signup`)
+- [ ] Login works (`POST /api/v1/auth/login`)
+- [ ] Invalid password returns `401`
+- [ ] Protected route rejects invalid JWT with `401`
+- [ ] Projects CRUD works end to end
 
-```bash
-cd docker
-docker compose --env-file ../.env up -d
-docker compose ps
-```
+## Day 2 - Agents
 
-**Auth:** no default admin — **Sign up** first, then login.
+- [ ] Create agent under owned project
+- [ ] List agents (all + by `project_id`)
+- [ ] Update agent fields (`name`, `system_prompt`, `model_name`)
+- [ ] Delete agent returns `204`
+- [ ] Agent creation on non-owned/non-existent project fails (`404`)
 
----
+## Day 3 - Chat, Streaming, Conversations
 
-## Day 1
+- [ ] `GET /api/v1/chat/models` returns `models`, `provider`, and `llm_configured`
+- [ ] `POST /api/v1/chat` streams SSE events (`meta`, `user_message`, `token`, `done`)
+- [ ] User and assistant messages persist in DB
+- [ ] Conversation list reloads correctly
+- [ ] Agent/system prompt changes response behavior
+- [ ] Invalid provider credentials produce clear error handling
 
-- [ ] Docker starts (all 4 services Up)
-- [ ] `GET /health` → `{"status":"ok"}`
-- [ ] Signup / login / JWT
-- [ ] Invalid password → 401
-- [ ] Protected route without token → 401
-- [ ] Project create / edit / delete
-- [ ] UI: Login → Dashboard → Projects
+## Notes
 
----
-
-## Day 2
-
-- [ ] User can log in
-- [ ] User sees only their own projects (second user cannot open first user’s project → 404)
-- [ ] User can create an agent (UI or `POST /api/v1/agents`)
-- [ ] User can edit an agent (UI or `PATCH /api/v1/agents/{id}`)
-- [ ] User can delete an agent (UI or `DELETE /api/v1/agents/{id}`)
-- [ ] Invalid JWT → 401 on `/api/v1/agents`
-- [ ] Agent with `project_id: 999999` → 404
-- [ ] Agent with `"name": ""` → 422
-
-### Day 2 Swagger map
-
-| Check | Endpoint |
-|-------|----------|
-| Login | `POST /api/v1/auth/login` |
-| Create agent | `POST /api/v1/agents` |
-| Edit agent | `PATCH /api/v1/agents/{id}` |
-| Delete agent | `DELETE /api/v1/agents/{id}` |
-| Bad JWT | `GET /api/v1/agents` (no/bad token) |
-| Bad project | `POST /api/v1/agents` with nonexistent `project_id` |
-| Validation | `POST /api/v1/agents` with empty `name` |
-
-### UI path
-
-Login → Dashboard (project cards) → open project → Create / Edit / Delete agent
+- Detailed manual step-by-step checks live in local-only `docs/manual_testing.md`.
+- Private engineering notes stay in local-only `docs/INTERVIEW_NOTES.md`.

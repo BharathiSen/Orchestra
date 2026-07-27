@@ -1,95 +1,71 @@
-# Architecture — Days 1–2 Platform Foundation
+# Architecture — Days 1–3
 
 ## Principle
 
-**Build the software platform before the AI.** Days 1–2 have no LLM calls. They establish auth, projects, agents (definitions only), persistence, and layered API design.
+Days 1–2 built the platform (auth, projects, agents).  
+**Day 3 introduces the first LLM runtime:** chat completions, streaming, and persisted conversation history.
 
-## High-level diagram (Day 2)
-
-```text
-             Browser
-                │
-        Next.js Dashboard
-                │
-          REST API Calls
-                │
-            FastAPI
-      ┌─────────┴─────────┐
-      ▼                   ▼
- Authentication      Agent Service
-      │                   │
-      └─────────┬─────────┘
-                ▼
-           PostgreSQL
-```
-
-Redis remains provisioned for Day 8 memory — not used in agent CRUD.
-
-## Request layers (why repository + service?)
+## Day 3 architecture
 
 ```text
-API (agents.py)        → HTTP in/out, status codes, Depends(JWT)
-Service (agent_service) → Business rules (ownership, project exists)
-Repository (agent_repo) → SQLAlchemy queries only
-Model (Agent)           → Table mapping
+                User
+                  │
+          Next.js Chat UI
+                  │
+            POST /api/v1/chat
+                  │
+               FastAPI
+        ┌─────────┴─────────┐
+        ▼                   ▼
+ Save Conversation      Gemini API
+        │                   │
+ PostgreSQL          Gemini Model (stream)
+        │                   │
+        └─────────┬─────────┘
+                  ▼
+          SSE token stream
+                  │
+          Next.js updates UI
 ```
 
-| Layer | Responsibility |
+## Layers (unchanged pattern)
+
+| Layer | Day 3 pieces |
 |-------|----------------|
-| **Repository** | Database operations only (`create`, `get`, `list`, `update`, `delete`) |
-| **Service** | Business logic (agent belongs to user via project; reject bad project ids) |
-| **API** | HTTP request/response handling |
+| API | `api/v1/chat.py` — `/chat`, `/conversations`, `/chat/models` |
+| Service | `chat_service.py` (ownership + orchestration), `gemini_service.py` (LLM client) |
+| Repository | `chat_repository.py` — conversations + messages SQL |
+| Models | `Conversation`, `Message` |
 
-This keeps the codebase maintainable as Orchestra grows into tools, RAG, and LangGraph.
+## Chat data flow
 
-## Components
+1. User sends a message from the Chat UI  
+2. FastAPI verifies JWT and project ownership  
+3. Create or load `Conversation`  
+4. Persist **user** `Message`  
+5. Build Gemini payload: system instruction + history (`user`/`model` roles)  
+6. Stream tokens via **SSE** (`text/event-stream`)  
+7. Persist **assistant** `Message`  
+8. Frontend reloads history from Postgres  
 
-| Component | Role |
-|-----------|------|
-| **Frontend** | Login, dashboard project cards, project detail + agent list, create/edit dialog |
-| **Backend** | FastAPI `/api/v1` — auth, projects, agents |
-| **PostgreSQL** | `users`, `projects`, `agents` |
-| **Redis** | Online; unused for CRUD |
-| **Docker Compose** | Local stack |
+## System prompt resolution (priority)
 
-## Backend module layout (Day 2)
+1. Request `system_prompt` override  
+2. Selected Agent’s `system_prompt`  
+3. Platform default (`DEFAULT_SYSTEM_PROMPT` / settings)
 
-```text
-backend/app/
-├── api/v1/
-│   ├── auth.py
-│   ├── projects.py
-│   └── agents.py
-├── models/
-│   ├── user.py
-│   ├── project.py
-│   └── agent.py
-├── schemas/
-│   ├── user.py
-│   ├── project.py
-│   └── agent.py
-├── services/
-│   └── agent_service.py
-├── repositories/
-│   └── agent_repository.py
-└── core/
-```
-
-## Create-agent data flow
+## Streaming protocol (SSE)
 
 ```text
-Frontend
-  → POST /api/v1/agents
-  → JWT verification
-  → Validate request (Pydantic)
-  → Service: project exists + owned by user
-  → Repository: insert into PostgreSQL
-  → Return AgentResponse
-  → Frontend updates UI
+data: {"type":"meta","conversation_id":1,"title":"..."}
+data: {"type":"user_message",...}
+data: {"type":"token","content":"Hel"}
+data: {"type":"token","content":"lo"}
+data: {"type":"done","message_id":2,"conversation_id":1}
+data: {"type":"error","detail":"..."}   # on failure
 ```
 
-## Ownership model
+## What Day 3 does **not** change
 
-- User owns Projects (`projects.owner_id`)
-- Project owns Agents (`agents.project_id`)
-- Agent access is authorized by walking Agent → Project → owner_id == current user
+- Auth, projects, agents CRUD remain as Day 1–2  
+- Redis still unused for chat (memory comes later)

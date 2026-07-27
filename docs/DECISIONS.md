@@ -62,3 +62,17 @@
 **Context**: PLAN.md Day 2 introduces Agents under the project workspace.  
 **Decision**: `agents.project_id` FK; authorize by `project.owner_id == current_user.id`. No direct `owner_id` on agents.  
 **Consequences**: Deleting a project cascades agents; moving agents between projects is a PATCH of `project_id` with ownership checks.
+
+## ADR-010: SSE streaming for chat (Day 3)
+
+**Status**: Accepted  
+**Context**: ChatGPT-like UX needs token-by-token delivery; waiting for full completion feels broken for long answers.  
+**Decision**: `POST /api/v1/chat` returns `text/event-stream` with typed JSON events (`meta`, `token`, `done`, `error`).  
+**Consequences**: Frontend uses `fetch` + `ReadableStream`; reverse proxies must disable response buffering (`X-Accel-Buffering: no`).
+
+## ADR-011: Persist user/assistant only; inject system at request time
+
+**Status**: Accepted  
+**Context**: System prompts change as agents evolve; duplicating system rows every turn pollutes history.  
+**Decision**: Store `user`/`assistant` messages; prepend system instruction when calling Gemini.
+**Consequences**: Prompt edits apply to future turns without rewriting history; evaluation later can still log the effective system prompt if needed.

@@ -1,4 +1,4 @@
-# API Contracts — Days 1–2
+# API Contracts — Days 1–3
 
 Base URL (Docker defaults on this machine): `http://localhost:18000`  
 API prefix: `/api/v1`  
@@ -111,7 +111,7 @@ All agent routes require Bearer JWT. Access is authorized via project ownership.
   "project_id": 1,
   "description": "Finds sources",
   "system_prompt": "You are a careful researcher.",
-  "model_name": "gpt-4o-mini"
+  "model_name": "llama-3.1-8b-instant"
 }
 ```
 
@@ -132,13 +132,67 @@ Filter to one project. Without query — all agents across the user’s projects
 {
   "name": "Updated name",
   "system_prompt": "New instructions",
-  "model_name": "gpt-4o-mini"
+  "model_name": "llama-3.1-8b-instant"
 }
 ```
 
 ### `DELETE /api/v1/agents/{id}`
 
 **204** No Content
+
+---
+
+## Chat & Conversations (Day 3)
+
+### `GET /api/v1/chat/models`
+
+Returns supported models for the active provider and whether it is configured.
+
+```json
+{
+  "models": [
+    { "id": \"llama-3.1-8b-instant\", \"label\": \"Llama 3.1 8B (Groq)\", "description": "..." }
+  ],
+  \"gemini_configured\": true,`n  \"llm_configured\": true,`n  \"provider\": \"groq\"
+}
+```
+
+### `POST /api/v1/chat` (streaming)
+
+**Auth required.** Returns `text/event-stream` (SSE).
+
+**Body**
+
+```json
+{
+  "project_id": 1,
+  "message": "Explain JWT Authentication.",
+  "conversation_id": null,
+  "agent_id": null,
+  "model": "gemini-2.0-flash",
+  "temperature": 0.2,
+  "system_prompt": null
+}
+```
+
+**SSE event types:** `meta`, `user_message`, `token`, `done`, `error`
+
+### Conversations
+
+| Method | Path | Notes |
+|--------|------|--------|
+| POST | `/api/v1/conversations` | Create empty conversation |
+| GET | `/api/v1/conversations?project_id=` | List for project |
+| GET | `/api/v1/conversations/{id}` | Get one |
+| PATCH | `/api/v1/conversations/{id}` | Update title/model/agent |
+| DELETE | `/api/v1/conversations/{id}` | Delete (204) |
+| GET | `/api/v1/conversations/{id}/messages` | Message history |
+
+**Errors**
+- `401` invalid JWT
+- `404` project/conversation not owned
+- `503` provider credentials missing
+- Provider auth/quota errors surfaced in SSE `error` or HTTP
 
 ---
 
@@ -149,3 +203,4 @@ Filter to one project. Without query — all agents across the user’s projects
 | `sub` | User id (string) |
 | `email` | User email |
 | `exp` | Expiry (UTC) |
+

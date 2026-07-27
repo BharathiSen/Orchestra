@@ -45,6 +45,18 @@ Monorepo, Docker, JWT auth, Projects CRUD, Login → Dashboard → Projects.
 | UI | Dashboard project cards → Agent list → Create/Edit dialog |
 | Docs | Architecture, Database, API, ADRs, Interview notes updated |
 
+## Day 3 scope (must have)
+
+| Feature | Requirement |
+|---------|-------------|
+| Conversations / Messages | Persisted under a project |
+| OpenAI / Gemini integration | Chat Completions via Gemini |
+| Streaming | SSE token stream to UI |
+| Model selection | Multiple models selectable |
+| System prompt | Default + optional agent prompt |
+| Chat UI | Message list, input, history sidebar |
+| Graceful errors | Missing/invalid API key handled |
+
 ## Success criteria (Day 2)
 
 - User logs in and sees only their projects
@@ -53,6 +65,14 @@ Monorepo, Docker, JWT auth, Projects CRUD, Login → Dashboard → Projects.
 - Non-existent / foreign project_id → 404
 - Invalid input → 422
 - Flow: Login → Dashboard → Project → Agent list
+
+## Success criteria (Day 3)
+
+- User starts a conversation and sees streaming replies
+- User + assistant messages stored in Postgres
+- History reloads correctly
+- Model + temperature selectable
+- Missing API key returns a clear error (no silent hang)
 
 ## Out of scope until later days
 

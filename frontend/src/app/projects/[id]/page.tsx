@@ -13,7 +13,7 @@ const emptyForm = {
   name: "",
   description: "",
   system_prompt: "",
-  model_name: "gpt-4o-mini",
+  model_name: "gemini-2.0-flash",
 };
 
 export default function ProjectDetailPage() {
@@ -160,6 +160,12 @@ export default function ProjectDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
+            href={`/projects/${projectId}/chat`}
+            className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Open Chat
+          </Link>
+          <Link
             href="/dashboard"
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
           >
@@ -272,7 +278,7 @@ export default function ProjectDetailPage() {
                   setForm((f) => ({ ...f, model_name: e.target.value }))
                 }
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-accent focus:ring-2"
-                placeholder="gpt-4o-mini"
+                placeholder="gemini-2.0-flash"
               />
             </label>
 

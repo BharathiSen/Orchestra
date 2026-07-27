@@ -50,6 +50,13 @@ docker compose --env-file ../.env up --build
 **Progress so far**
 - Day 1: Auth (JWT), Projects, Docker stack
 - Day 2: Agent CRUD, dashboard project cards, repository/service layers
+- Day 3: Gemini chat, streaming SSE, conversations/messages, chat UI
+
+**Gemini / Groq / Ollama (Day 3+):**  
+- Free testing: `LLM_PROVIDER=groq` + `GROQ_API_KEY` from https://console.groq.com/keys  
+- Fully local free: `LLM_PROVIDER=ollama` (install Ollama, `ollama pull llama3.2`)  
+- Production: `LLM_PROVIDER=gemini` + `GEMINI_API_KEY`  
+Then restart the backend. Chat: `/projects/{id}/chat`.
 
 Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/manual_testing.md`) are gitignored — use `docs/TESTING.md` for the shared checklist.
 
@@ -70,7 +77,7 @@ Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/ma
 
 ## AI Engineering
 
-- OpenAI Integration
+- OpenAI Integration → Gemini chat (Day 3)
 - LangChain
 - LangGraph
 - Multi-Agent Workflows
@@ -133,7 +140,7 @@ Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/ma
                        │
       Planner → Tools → Memory → Reviewer
                        │
-                   OpenAI Models
+                   LLM Providers
 ```
 
 ---
@@ -164,7 +171,7 @@ Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/ma
 
 ## AI
 
-- OpenAI
+- Gemini / Groq / Ollama
 - LangChain
 - LangGraph
 - pgvector
@@ -197,7 +204,8 @@ Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/ma
 ## Phase 2
 
 - LLM Integration
-- Streaming
+- Streaming chat
+- Conversations / messages
 - Tool Calling
 - LangGraph
 
@@ -253,7 +261,8 @@ This project is designed to master:
 - Flowise
 - LangFlow
 - n8n
-- OpenAI
+- Gemini / Groq / Ollama
 - CrewAI
 
 ---
+
