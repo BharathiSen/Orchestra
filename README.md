@@ -50,15 +50,16 @@ docker compose --env-file ../.env up --build
 **Progress so far**
 - Day 1: Auth (JWT), Projects, Docker stack
 - Day 2: Agent CRUD, dashboard project cards, repository/service layers
-- Day 3: Gemini chat, streaming SSE, conversations/messages, chat UI
+- Day 3: LLM chat, streaming SSE, conversations/messages, chat UI
+- Day 4: Tool calling (registry + calculator / Open-Meteo weather / search) with live tool status in chat
 
 **Gemini / Groq / Ollama (Day 3+):**  
 - Free testing: `LLM_PROVIDER=groq` + `GROQ_API_KEY` from https://console.groq.com/keys  
 - Fully local free: `LLM_PROVIDER=ollama` (install Ollama, `ollama pull llama3.2`)  
 - Production: `LLM_PROVIDER=gemini` + `GEMINI_API_KEY`  
-Then restart the backend. Chat: `/projects/{id}/chat`.
+Then restart the backend. Chat: `/projects/{id}/chat` (tools enabled by default; weather uses Open-Meteo — no weather API key).
 
-Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/manual_testing.md`) are gitignored — use `docs/TESTING.md` for the shared checklist.
+Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/manual_testing.md`) are gitignored.
 
 ---
 
@@ -77,11 +78,11 @@ Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/ma
 
 ## AI Engineering
 
-- OpenAI Integration → Gemini chat (Day 3)
+- LLM Integration (Gemini/Groq/Ollama)
+- Tool Calling (Day 4 registry)
 - LangChain
 - LangGraph
 - Multi-Agent Workflows
-- Tool Calling
 - Structured Outputs
 - Streaming Responses
 - Conversation Memory
@@ -206,7 +207,7 @@ Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/ma
 - LLM Integration
 - Streaming chat
 - Conversations / messages
-- Tool Calling
+- Tool Calling (registry)
 - LangGraph
 
 ---

@@ -46,6 +46,18 @@ class ChatRequest(BaseModel):
     model: str = Field(default="llama-3.1-8b-instant", min_length=1, max_length=100)
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     system_prompt: str | None = Field(default=None, max_length=20000)
+    enable_tools: bool = True
+
+
+class ToolInfo(BaseModel):
+    name: str
+    description: str
+    parameters: dict
+
+
+class ToolsResponse(BaseModel):
+    tools: list[ToolInfo]
+    count: int
 
 
 class ModelInfo(BaseModel):

@@ -12,8 +12,11 @@ from app.schemas import (
     ConversationUpdate,
     MessageResponse,
     ModelsResponse,
+    ToolInfo,
+    ToolsResponse,
 )
 from app.services.chat_service import ChatService, list_supported_models
+from app.tools import ensure_default_tools
 
 router = APIRouter(tags=["chat"])
 
@@ -22,6 +25,15 @@ router = APIRouter(tags=["chat"])
 def get_chat_models() -> ModelsResponse:
     data = list_supported_models()
     return ModelsResponse.model_validate(data)
+
+
+@router.get("/tools", response_model=ToolsResponse)
+def list_tools(current_user: User = Depends(get_current_user)) -> ToolsResponse:
+    """List registered tools (Day 4 tool registry catalog)."""
+    _ = current_user
+    catalog = ensure_default_tools().public_catalog()
+    tools = [ToolInfo.model_validate(item) for item in catalog]
+    return ToolsResponse(tools=tools, count=len(tools))
 
 
 @router.post("/chat")
@@ -72,7 +84,9 @@ def get_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ConversationResponse:
-    conversation = ChatService(db).get_conversation(user=current_user, conversation_id=conversation_id)
+    conversation = ChatService(db).get_conversation(
+        user=current_user, conversation_id=conversation_id
+    )
     return ConversationResponse.model_validate(conversation)
 
 

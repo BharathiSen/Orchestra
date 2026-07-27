@@ -55,8 +55,8 @@ export default function LoginPage() {
             Build the platform before the agents.
           </h1>
           <p className="mt-4 max-w-md text-base text-slate-600">
-            Day 1 foundation: authentication, projects, and a workspace for the
-            AI engineering lifecycle.
+            Sign in to manage projects, agents, and chat with tool-powered
+            assistants in your AI engineering workspace.
           </p>
         </div>
 

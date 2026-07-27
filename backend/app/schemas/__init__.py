@@ -7,6 +7,8 @@ from app.schemas.chat import (
     MessageResponse,
     ModelInfo,
     ModelsResponse,
+    ToolInfo,
+    ToolsResponse,
 )
 from app.schemas.project import ProjectCreate, ProjectOut, ProjectUpdate
 from app.schemas.user import TokenOut, UserCreate, UserLogin, UserOut
@@ -29,4 +31,6 @@ __all__ = [
     "ChatRequest",
     "ModelInfo",
     "ModelsResponse",
+    "ToolInfo",
+    "ToolsResponse",
 ]

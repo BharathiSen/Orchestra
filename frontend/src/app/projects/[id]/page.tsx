@@ -243,7 +243,7 @@ export default function ProjectDetailPage() {
               {dialog === "create" ? "Create Agent" : "Edit Agent"}
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              Day 2 stores agent definitions — LLM execution starts on Day 3.
+              Configure name, system prompt, and default model for this agent.
             </p>
 
             <label className="mt-4 block text-sm">

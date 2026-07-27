@@ -107,10 +107,26 @@ async function request<T>(
   return response.json() as Promise<T>;
 }
 
+export type ToolInfo = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
+export type ToolEvent = {
+  tool_call_id: string;
+  tool_name: string;
+  arguments?: string;
+  status: "running" | "complete" | "error";
+  result?: string;
+};
+
 export type ChatStreamHandlers = {
   onMeta?: (data: { conversation_id: number; title: string }) => void;
   onUserMessage?: (data: ChatMessage) => void;
   onToken?: (token: string) => void;
+  onToolStart?: (data: ToolEvent) => void;
+  onToolResult?: (data: ToolEvent) => void;
   onDone?: (data: { message_id: number; conversation_id: number }) => void;
   onError?: (detail: string) => void;
 };
@@ -125,6 +141,7 @@ export async function streamChat(
     model?: string;
     temperature?: number;
     system_prompt?: string;
+    enable_tools?: boolean;
   },
   handlers: ChatStreamHandlers,
 ): Promise<void> {
@@ -182,6 +199,11 @@ export async function streamChat(
           message_id?: number;
           detail?: string;
           created_at?: string;
+          tool_call_id?: string;
+          tool_name?: string;
+          arguments?: string;
+          status?: "running" | "complete" | "error";
+          result?: string;
         };
 
         if (event.type === "meta" && event.conversation_id != null) {
@@ -196,6 +218,20 @@ export async function streamChat(
             role: event.role || "user",
             content: event.content || "",
             created_at: event.created_at || new Date().toISOString(),
+          });
+        } else if (event.type === "tool_start" && event.tool_name) {
+          handlers.onToolStart?.({
+            tool_call_id: event.tool_call_id || event.tool_name,
+            tool_name: event.tool_name,
+            arguments: event.arguments,
+            status: "running",
+          });
+        } else if (event.type === "tool_result" && event.tool_name) {
+          handlers.onToolResult?.({
+            tool_call_id: event.tool_call_id || event.tool_name,
+            tool_name: event.tool_name,
+            status: event.status || "complete",
+            result: event.result,
           });
         } else if (event.type === "token" && event.content) {
           handlers.onToken?.(event.content);
@@ -300,6 +336,8 @@ export const api = {
       llm_configured?: boolean;
       provider?: string;
     }>("/api/v1/chat/models", {}, token),
+  listTools: (token: string) =>
+    request<{ tools: ToolInfo[]; count: number }>("/api/v1/tools", {}, token),
   listConversations: (token: string, projectId: number) =>
     request<Conversation[]>(
       `/api/v1/conversations?project_id=${projectId}`,

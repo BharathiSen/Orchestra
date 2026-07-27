@@ -1,71 +1,84 @@
-# Architecture — Days 1–3
+# Architecture — Days 1–4
 
 ## Principle
 
 Days 1–2 built the platform (auth, projects, agents).  
-**Day 3 introduces the first LLM runtime:** chat completions, streaming, and persisted conversation history.
+Day 3 introduced LLM chat + SSE streaming.  
+**Day 4 adds tool calling:** the model can request structured tool runs via a registry, then produce a grounded final answer.
 
-## Day 3 architecture
+## Day 4 architecture
 
 ```text
                 User
                   │
-          Next.js Chat UI
+           Next.js Chat
                   │
-            POST /api/v1/chat
+            POST /chat
                   │
                FastAPI
-        ┌─────────┴─────────┐
-        ▼                   ▼
- Save Conversation      Gemini API
-        │                   │
- PostgreSQL          Gemini Model (stream)
-        │                   │
-        └─────────┬─────────┘
-                  ▼
-          SSE token stream
                   │
-          Next.js updates UI
+         LLM Chat Completions
+                  │
+        ┌─────────┴─────────┐
+        │                   │
+   Normal Response      Tool Call
+                            │
+                    Tool Registry
+                            │
+       ┌────────┬────────┬────────┐
+       ▼        ▼        ▼
+ Calculator  Weather   Search
+   (AST)    (Open-Meteo) (mock KB)
+       │
+       ▼
+ Tool Result → LLM (tools off) → Final Answer (SSE)
 ```
 
-## Layers (unchanged pattern)
+## Layers
 
-| Layer | Day 3 pieces |
+| Layer | Day 4 pieces |
 |-------|----------------|
-| API | `api/v1/chat.py` — `/chat`, `/conversations`, `/chat/models` |
-| Service | `chat_service.py` (ownership + orchestration), `gemini_service.py` (LLM client) |
-| Repository | `chat_repository.py` — conversations + messages SQL |
-| Models | `Conversation`, `Message` |
+| API | `api/v1/chat.py` — `/chat`, `/tools`, conversations |
+| Service | `chat_service.py` tool loop; `openai_compatible_service.py` / `gemini_service.py` |
+| Tools | `tools/base.py`, `registry.py`, `calculator.py`, `weather.py`, `search.py` |
+| Repository | unchanged conversations/messages |
+| Models | still `Conversation` / `Message` (user + assistant only) |
 
-## Chat data flow
+## Tool-calling data flow
 
-1. User sends a message from the Chat UI  
-2. FastAPI verifies JWT and project ownership  
-3. Create or load `Conversation`  
-4. Persist **user** `Message`  
-5. Build Gemini payload: system instruction + history (`user`/`model` roles)  
-6. Stream tokens via **SSE** (`text/event-stream`)  
-7. Persist **assistant** `Message`  
-8. Frontend reloads history from Postgres  
+1. User sends a message (`enable_tools=true` by default)  
+2. FastAPI verifies JWT + project ownership  
+3. Persist user message  
+4. Build LLM payload: system (+ tool guidance) + history + `tools[]` schemas  
+5. Non-streaming **decision round**: model returns text **or** `tool_calls`  
+6. For each tool call (capped) → SSE `tool_start` → `ToolRegistry.execute` → SSE `tool_result`  
+7. Append assistant tool-call + tool result messages to the in-memory transcript  
+8. **Final answer pass with tools disabled** (stream tokens) — prevents infinite tool loops  
+9. Persist assistant message; SSE `done`
 
-## System prompt resolution (priority)
+## Built-in tools
 
-1. Request `system_prompt` override  
-2. Selected Agent’s `system_prompt`  
-3. Platform default (`DEFAULT_SYSTEM_PROMPT` / settings)
+| Tool | Implementation |
+|------|----------------|
+| `calculator` | Safe AST arithmetic (no `eval`) |
+| `weather` | Live **Open-Meteo** (geocode city → lat/lon → current weather); mock fallback if offline |
+| `search` | Mock Orchestra knowledge snippets (stand-in until RAG Days 6–7) |
 
-## Streaming protocol (SSE)
+## Why a Tool Registry?
+
+Without it, chat code becomes `if tool == "weather"` forever.  
+With it: register once, look up by name, execute. Adding a tool never changes the chat pipeline.
+
+## SSE events (Day 4)
 
 ```text
-data: {"type":"meta","conversation_id":1,"title":"..."}
-data: {"type":"user_message",...}
-data: {"type":"token","content":"Hel"}
-data: {"type":"token","content":"lo"}
-data: {"type":"done","message_id":2,"conversation_id":1}
-data: {"type":"error","detail":"..."}   # on failure
+meta | user_message | tool_start | tool_result | token | done | error
 ```
 
-## What Day 3 does **not** change
+## What Day 4 does **not** change
 
-- Auth, projects, agents CRUD remain as Day 1–2  
-- Redis still unused for chat (memory comes later)
+- Auth / projects / agents CRUD  
+- Conversation + message persistence model (ADR-011 still holds)  
+- No new DB tables for tools (ADR-013: live SSE only)  
+- Redis still unused for memory (Day 8)  
+- Frontend UI does not show “Day N” labels (product copy only)

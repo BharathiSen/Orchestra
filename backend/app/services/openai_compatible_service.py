@@ -1,14 +1,16 @@
 from collections.abc import Iterator
 import json
+import uuid
+from typing import Any
 
 import httpx
 from fastapi import HTTPException, status
 
-from app.core.config import settings
+from app.services.llm_types import ChatCompletionResult, ToolCallRequest
 
 
 class OpenAICompatibleService:
-    """Streaming chat via OpenAI-compatible HTTP APIs (Groq, Ollama, etc.)."""
+    """Streaming + tool-calling via OpenAI-compatible HTTP APIs (Groq, Ollama, etc.)."""
 
     def __init__(
         self,
@@ -28,28 +30,106 @@ class OpenAICompatibleService:
                 detail=self.missing_key_hint,
             )
 
-    def stream_chat_completion(
-        self,
-        *,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float,
-    ) -> Iterator[str]:
-        url = f"{self.base_url}/chat/completions"
+    def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self.api_key.strip():
             headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
 
-        payload = {
+    def complete_chat(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        model: str,
+        temperature: float,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = "auto",
+    ) -> ChatCompletionResult:
+        """Non-streaming completion — used for the tool-decision round."""
+        url = f"{self.base_url}/chat/completions"
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": False,
+        }
+        if tools:
+            payload["tools"] = tools
+            if tool_choice is not None:
+                payload["tool_choice"] = tool_choice
+
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                response = client.post(url, headers=self._headers(), json=payload)
+                if response.status_code >= 400:
+                    self._raise_http_error(response.status_code, response.text)
+                data = response.json()
+        except HTTPException:
+            raise
+        except httpx.ConnectError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    f"Cannot reach {self.provider_name} at {self.base_url}. "
+                    f"{exc}"
+                ),
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"{self.provider_name} API error: {exc}",
+            ) from exc
+
+        choices = data.get("choices") or []
+        if not choices:
+            return ChatCompletionResult(content="", finish_reason="stop")
+
+        message = choices[0].get("message") or {}
+        finish_reason = choices[0].get("finish_reason")
+        content = message.get("content")
+        tool_calls_raw = message.get("tool_calls") or []
+
+        tool_calls: list[ToolCallRequest] = []
+        for tc in tool_calls_raw:
+            fn = tc.get("function") or {}
+            tool_calls.append(
+                ToolCallRequest(
+                    id=tc.get("id") or f"call_{uuid.uuid4().hex[:12]}",
+                    name=fn.get("name") or "",
+                    arguments=fn.get("arguments") or "{}",
+                )
+            )
+
+        return ChatCompletionResult(
+            content=content,
+            tool_calls=tool_calls,
+            finish_reason=finish_reason,
+            raw_assistant_message=message,
+        )
+
+    def stream_chat_completion(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        model: str,
+        temperature: float,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Iterator[str]:
+        url = f"{self.base_url}/chat/completions"
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
             "stream": True,
         }
+        # Final answer round usually omits tools; keep optional for flexibility.
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "none"
 
         try:
             with httpx.Client(timeout=120.0) as client:
-                with client.stream("POST", url, headers=headers, json=payload) as response:
+                with client.stream("POST", url, headers=self._headers(), json=payload) as response:
                     if response.status_code >= 400:
                         body = response.read().decode("utf-8", errors="replace")
                         self._raise_http_error(response.status_code, body)

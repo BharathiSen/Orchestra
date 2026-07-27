@@ -1,4 +1,4 @@
-# Database — Days 1–3 Schema
+# Database — Days 1–4 Schema
 
 ## ER diagram
 
@@ -8,7 +8,12 @@ User 1──<N Project 1──<N Agent
                    └──<N Conversation 1──<N Message
 ```
 
-## New tables (Day 3)
+## Day 4 note
+
+**No new tables.** Tools live in process memory via `ToolRegistry`.  
+Tool calls are shown live over SSE; only `user` / `assistant` messages are persisted (ADR-011 / ADR-013).
+
+## Tables (Day 3)
 
 ### `conversations`
 
@@ -39,3 +44,7 @@ Normalized messages scale to evaluation, cost tracking, and RAG citations later.
 ## Earlier tables
 
 Unchanged: `users`, `projects`, `agents` (Days 1–2).
+
+## Future (not Day 4)
+
+Day 9 may add execution / tool-trace tables for observability.

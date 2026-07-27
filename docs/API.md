@@ -1,4 +1,4 @@
-# API Contracts — Days 1–3
+# API Contracts — Days 1–4
 
 Base URL (Docker defaults on this machine): `http://localhost:18000`  
 API prefix: `/api/v1`  
@@ -142,7 +142,7 @@ Filter to one project. Without query — all agents across the user’s projects
 
 ---
 
-## Chat & Conversations (Day 3)
+## Chat & Conversations (Day 3+)
 
 ### `GET /api/v1/chat/models`
 
@@ -151,9 +151,11 @@ Returns supported models for the active provider and whether it is configured.
 ```json
 {
   "models": [
-    { "id": \"llama-3.1-8b-instant\", \"label\": \"Llama 3.1 8B (Groq)\", "description": "..." }
+    { "id": "llama-3.1-8b-instant", "label": "Llama 3.1 8B (Groq)", "description": "..." }
   ],
-  \"gemini_configured\": true,`n  \"llm_configured\": true,`n  \"provider\": \"groq\"
+  "gemini_configured": true,
+  "llm_configured": true,
+  "provider": "groq"
 }
 ```
 
@@ -166,16 +168,56 @@ Returns supported models for the active provider and whether it is configured.
 ```json
 {
   "project_id": 1,
-  "message": "Explain JWT Authentication.",
+  "message": "What is 24 * 18?",
   "conversation_id": null,
   "agent_id": null,
-  "model": "gemini-2.0-flash",
+  "model": "llama-3.1-8b-instant",
   "temperature": 0.2,
-  "system_prompt": null
+  "system_prompt": null,
+  "enable_tools": true
 }
 ```
 
-**SSE event types:** `meta`, `user_message`, `token`, `done`, `error`
+**SSE event types:** `meta`, `user_message`, `tool_start`, `tool_result`, `token`, `done`, `error`
+
+Example tool events:
+
+```json
+{ "type": "tool_start", "tool_call_id": "call_abc", "tool_name": "calculator", "arguments": "{\"expression\":\"24*18\"}", "status": "running" }
+{ "type": "tool_result", "tool_call_id": "call_abc", "tool_name": "calculator", "status": "complete", "result": "432" }
+```
+
+---
+
+## Tools (Day 4)
+
+### `GET /api/v1/tools`
+
+**Auth required.** Lists the Tool Registry catalog.
+
+```json
+{
+  "count": 3,
+  "tools": [
+    {
+      "name": "calculator",
+      "description": "...",
+      "parameters": {
+        "type": "object",
+        "properties": { "expression": { "type": "string" } }
+      }
+    }
+  ]
+}
+```
+
+Built-in tools:
+
+| Name | Behavior |
+|------|----------|
+| `calculator` | Safe AST math |
+| `weather` | Open-Meteo live weather (geocode + current); mock fallback offline |
+| `search` | Mock Orchestra knowledge snippets |
 
 ### Conversations
 
@@ -192,7 +234,7 @@ Returns supported models for the active provider and whether it is configured.
 - `401` invalid JWT
 - `404` project/conversation not owned
 - `503` provider credentials missing
-- Provider auth/quota errors surfaced in SSE `error` or HTTP
+- Provider auth/quota / tool errors surfaced in SSE `error` or `tool_result`
 
 ---
 
@@ -203,4 +245,3 @@ Returns supported models for the active provider and whether it is configured.
 | `sub` | User id (string) |
 | `email` | User email |
 | `exp` | Expiry (UTC) |
-

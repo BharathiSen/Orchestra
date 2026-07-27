@@ -74,6 +74,27 @@ Monorepo, Docker, JWT auth, Projects CRUD, Login → Dashboard → Projects.
 - Model + temperature selectable
 - Missing API key returns a clear error (no silent hang)
 
+## Day 4 scope (must have)
+
+| Feature | Requirement |
+|---------|-------------|
+| Tool interface | name, description, JSON schema, execute |
+| Tool registry | register / lookup / execute |
+| Built-in tools | calculator (AST), weather (Open-Meteo + mock fallback), search (mock KB) |
+| Tool-calling pipeline | LLM may request tools; results fed back; final answer with tools disabled |
+| SSE + UI | Show tool name, running/complete status, then answer |
+| Toggle | `enable_tools` on chat request / UI checkbox |
+| Catalog API | `GET /api/v1/tools` |
+
+## Success criteria (Day 4)
+
+- Math questions invoke calculator and return correct numeric answers
+- Weather questions return live Open-Meteo data (or graceful mock fallback)
+- Search questions show tool cards then a grounded answer from mock knowledge
+- Unknown / invalid tool inputs fail gracefully without crashing chat
+- Disabling tools falls back to plain streaming chat
+- No “Day N” labels in the product UI (docs only)
+
 ## Out of scope until later days
 
-See `ROADMAP.md` and root `PLAN.md` (Days 3–10 + v2).
+See root `PLAN.md` (Days 5–10 + v2).

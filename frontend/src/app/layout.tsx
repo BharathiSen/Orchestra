@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Orchestra",
-  description: "AI Engineering Platform — Day 1 foundation",
+  description: "AI Engineering Platform for designing and running intelligent agents",
 };
 
 export default function RootLayout({

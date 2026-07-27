@@ -13,6 +13,8 @@ import {
   type ChatModel,
   type Conversation,
   type Project,
+  type ToolEvent,
+  type ToolInfo,
 } from "@/lib/api";
 import { clearSession, getToken } from "@/lib/auth";
 
@@ -20,7 +22,55 @@ type UiMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  tools?: ToolEvent[];
 };
+
+function toolLabel(name: string): string {
+  if (name === "calculator") return "Calculator";
+  if (name === "weather") return "Weather";
+  if (name === "search") return "Search";
+  return name;
+}
+
+function ToolPanel({ tools }: { tools: ToolEvent[] }) {
+  if (!tools.length) return null;
+  return (
+    <div className="mb-2 space-y-1.5">
+      {tools.map((t) => (
+        <div
+          key={t.tool_call_id}
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold">
+              {toolLabel(t.tool_name)}
+            </span>
+            <span
+              className={
+                t.status === "running"
+                  ? "text-amber-700"
+                  : t.status === "error"
+                    ? "text-red-700"
+                    : "text-teal-700"
+              }
+            >
+              {t.status === "running"
+                ? "Running…"
+                : t.status === "error"
+                  ? "Error"
+                  : "Complete"}
+            </span>
+          </div>
+          {t.result && (
+            <p className="mt-1 whitespace-pre-wrap text-[11px] text-slate-600">
+              {t.result.length > 280 ? `${t.result.slice(0, 277)}…` : t.result}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function ProjectChatPage() {
   const router = useRouter();
@@ -36,11 +86,13 @@ export default function ProjectChatPage() {
   );
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [models, setModels] = useState<ChatModel[]>([]);
+  const [toolsCatalog, setToolsCatalog] = useState<ToolInfo[]>([]);
   const [llmConfigured, setLlmConfigured] = useState(true);
   const [provider, setProvider] = useState("groq");
   const [model, setModel] = useState("llama-3.1-8b-instant");
   const [agentId, setAgentId] = useState<number | "">("");
   const [temperature, setTemperature] = useState(0.2);
+  const [enableTools, setEnableTools] = useState(true);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -95,12 +147,14 @@ export default function ProjectChatPage() {
       api.listAgents(authToken, projectId),
       api.listConversations(authToken, projectId),
       api.listModels(authToken),
+      api.listTools(authToken).catch(() => ({ tools: [], count: 0 })),
     ])
-      .then(([projectData, agentList, conversationList, modelData]) => {
+      .then(([projectData, agentList, conversationList, modelData, toolsData]) => {
         setProject(projectData);
         setAgents(agentList);
         setConversations(conversationList);
         setModels(modelData.models);
+        setToolsCatalog(toolsData.tools || []);
         setLlmConfigured(
           modelData.llm_configured ?? modelData.gemini_configured,
         );
@@ -180,7 +234,7 @@ export default function ProjectChatPage() {
     setMessages((prev) => [
       ...prev,
       optimisticUser,
-      { id: assistantId, role: "assistant", content: "" },
+      { id: assistantId, role: "assistant", content: "", tools: [] },
     ]);
 
     try {
@@ -194,10 +248,42 @@ export default function ProjectChatPage() {
           model,
           temperature,
           system_prompt: selectedAgent?.system_prompt || undefined,
+          enable_tools: enableTools,
         },
         {
           onMeta: ({ conversation_id }) => {
             setActiveConversationId(conversation_id);
+          },
+          onToolStart: (tool) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      tools: [
+                        ...(m.tools || []).filter(
+                          (t) => t.tool_call_id !== tool.tool_call_id,
+                        ),
+                        tool,
+                      ],
+                    }
+                  : m,
+              ),
+            );
+          },
+          onToolResult: (tool) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      tools: (m.tools || []).map((t) =>
+                        t.tool_call_id === tool.tool_call_id ? { ...t, ...tool } : t,
+                      ),
+                    }
+                  : m,
+              ),
+            );
           },
           onToken: (tokenText) => {
             setMessages((prev) =>
@@ -213,14 +299,10 @@ export default function ProjectChatPage() {
           },
           onDone: async () => {
             await refreshConversations(token);
-            if (activeConversationId) {
-              await loadConversationMessages(token, activeConversationId);
-            }
           },
         },
       );
 
-      // Reload from DB so ids match persisted rows
       const list = await refreshConversations(token);
       const currentId =
         activeConversationId ??
@@ -229,7 +311,25 @@ export default function ProjectChatPage() {
         null;
       if (currentId) {
         setActiveConversationId(currentId);
-        await loadConversationMessages(token, currentId);
+        // Keep live tool cards for this turn; reload only if we need canonical ids.
+        const rows = await api.listMessages(token, currentId);
+        setMessages((prev) => {
+          const liveTools =
+            prev.find((m) => m.id === assistantId)?.tools || [];
+          return rows
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m: ChatMessage, idx, arr) => {
+              const isLastAssistant =
+                m.role === "assistant" &&
+                idx === arr.map((x) => x.role).lastIndexOf("assistant");
+              return {
+                id: String(m.id),
+                role: m.role as "user" | "assistant",
+                content: m.content,
+                tools: isLastAssistant ? liveTools : undefined,
+              };
+            });
+        });
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Chat failed");
@@ -260,8 +360,17 @@ export default function ProjectChatPage() {
             Chat · {project.name}
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Day 3 — streaming LLM chat with conversation history.
+            Streaming chat with optional tools: calculator, weather, and search.
           </p>
+          <label className="mt-3 inline-flex items-center gap-2 rounded-lg border-2 border-teal-500 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-900">
+            <input
+              type="checkbox"
+              checked={enableTools}
+              onChange={(e) => setEnableTools(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Enable tools {enableTools ? "(ON)" : "(OFF)"}
+          </label>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
@@ -291,6 +400,15 @@ export default function ProjectChatPage() {
       {llmConfigured && (
         <p className="mb-4 text-xs text-slate-500">
           Active provider: <span className="font-medium">{provider}</span>
+          {toolsCatalog.length > 0 && (
+            <>
+              {" "}
+              · Tools:{" "}
+              <span className="font-medium">
+                {toolsCatalog.map((t) => t.name).join(", ")}
+              </span>
+            </>
+          )}
         </p>
       )}
 
@@ -347,7 +465,7 @@ export default function ProjectChatPage() {
         </aside>
 
         <section className="flex flex-col rounded-2xl border border-slate-200 bg-white/80">
-          <div className="flex flex-wrap gap-3 border-b border-slate-200 p-3">
+          <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 p-3">
             <label className="text-xs text-slate-600">
               Model
               <select
@@ -396,7 +514,8 @@ export default function ProjectChatPage() {
           <div className="flex-1 space-y-3 overflow-y-auto p-4">
             {messages.length === 0 && (
               <p className="text-center text-sm text-slate-500">
-                Ask anything — responses stream token by token.
+                Try: &quot;What is 24 * 18?&quot; or &quot;Weather in Chennai&quot; or
+                &quot;Search for JWT&quot;
               </p>
             )}
             {messages.map((m) => (
@@ -411,6 +530,9 @@ export default function ProjectChatPage() {
                 <p className="mb-1 text-[10px] font-semibold tracking-wide uppercase opacity-70">
                   {m.role}
                 </p>
+                {m.role === "assistant" && m.tools && m.tools.length > 0 && (
+                  <ToolPanel tools={m.tools} />
+                )}
                 {m.content || (sending ? "…" : "")}
               </div>
             ))}
@@ -423,7 +545,7 @@ export default function ProjectChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 rows={2}
-                placeholder="Explain JWT authentication..."
+                placeholder="Ask something that needs a tool…"
                 className="min-h-[48px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-accent focus:ring-2"
                 disabled={sending}
               />
