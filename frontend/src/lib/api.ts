@@ -21,6 +21,7 @@ export type Agent = {
   system_prompt: string;
   model_name: string;
   project_id: number;
+  knowledge_base_ids: number[];
   created_at: string;
   updated_at: string;
 };
@@ -79,6 +80,17 @@ export type ChunkRecord = {
   content: string;
   metadata: Record<string, unknown> | null;
   created_at: string;
+};
+
+export type RetrievedChunk = {
+  chunk_id: number;
+  document_id: number;
+  document_name: string;
+  knowledge_base_id: number;
+  knowledge_base_name: string;
+  chunk_index: number;
+  content: string;
+  score: number;
 };
 
 export type AuthResponse = {
@@ -164,6 +176,7 @@ export type GraphStepEvent = {
 export type ChatStreamHandlers = {
   onMeta?: (data: { conversation_id: number; title: string }) => void;
   onUserMessage?: (data: ChatMessage) => void;
+  onRetrievedContext?: (data: { count: number; chunks: RetrievedChunk[] }) => void;
   onToken?: (token: string) => void;
   onToolStart?: (data: ToolEvent) => void;
   onToolResult?: (data: ToolEvent) => void;
@@ -247,12 +260,19 @@ export async function streamChat(
           result?: string;
           node?: GraphNodeName;
           summary?: string;
+          count?: number;
+          chunks?: RetrievedChunk[];
         };
 
         if (event.type === "meta" && event.conversation_id != null) {
           handlers.onMeta?.({
             conversation_id: event.conversation_id,
             title: event.title || "New conversation",
+          });
+        } else if (event.type === "retrieved_context") {
+          handlers.onRetrievedContext?.({
+            count: event.count || 0,
+            chunks: event.chunks || [],
           });
         } else if (event.type === "user_message" && event.id != null) {
           handlers.onUserMessage?.({
@@ -358,6 +378,7 @@ export const api = {
       description?: string;
       system_prompt?: string;
       model_name?: string;
+      knowledge_base_ids?: number[];
     },
   ) =>
     request<Agent>(
@@ -374,6 +395,7 @@ export const api = {
       system_prompt?: string;
       model_name?: string;
       project_id?: number;
+      knowledge_base_ids?: number[];
     },
   ) =>
     request<Agent>(

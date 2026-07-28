@@ -15,6 +15,7 @@ import {
   type GraphNodeName,
   type GraphStepEvent,
   type Project,
+  type RetrievedChunk,
   type ToolEvent,
   type ToolInfo,
 } from "@/lib/api";
@@ -24,6 +25,7 @@ type UiMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  retrievedChunks?: RetrievedChunk[];
   tools?: ToolEvent[];
   graphSteps?: GraphStepEvent[];
 };
@@ -121,6 +123,25 @@ function GraphExecutionPanel({ steps }: { steps: GraphStepEvent[] }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function RetrievedContextPanel({ chunks }: { chunks: RetrievedChunk[] }) {
+  if (!chunks.length) return null;
+  return (
+    <div className="mb-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+      <p className="mb-1 font-semibold text-slate-800">Retrieved Sources</p>
+      <div className="space-y-1">
+        {chunks.map((chunk) => (
+          <div key={chunk.chunk_id} className="rounded-md bg-slate-50 px-2 py-1">
+            <p className="font-medium text-slate-700">
+              ✓ Chunk {chunk.chunk_id} · {chunk.document_name}
+            </p>
+            <p className="line-clamp-2 text-[11px] text-slate-600">{chunk.content}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -325,6 +346,18 @@ export default function ProjectChatPage() {
               ),
             );
           },
+          onRetrievedContext: ({ chunks }) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      retrievedChunks: chunks,
+                    }
+                  : m,
+              ),
+            );
+          },
           onToolResult: (tool) => {
             setMessages((prev) =>
               prev.map((m) =>
@@ -387,6 +420,8 @@ export default function ProjectChatPage() {
         setMessages((prev) => {
           const liveTools =
             prev.find((m) => m.id === assistantId)?.tools || [];
+          const liveRetrieved =
+            prev.find((m) => m.id === assistantId)?.retrievedChunks || [];
           const liveGraphSteps =
             prev.find((m) => m.id === assistantId)?.graphSteps || [];
           return rows
@@ -399,6 +434,7 @@ export default function ProjectChatPage() {
                 id: String(m.id),
                 role: m.role as "user" | "assistant",
                 content: m.content,
+                retrievedChunks: isLastAssistant ? liveRetrieved : undefined,
                 tools: isLastAssistant ? liveTools : undefined,
                 graphSteps: isLastAssistant ? liveGraphSteps : undefined,
               };
@@ -610,6 +646,9 @@ export default function ProjectChatPage() {
                 <p className="mb-1 text-[10px] font-semibold tracking-wide uppercase opacity-70">
                   {m.role}
                 </p>
+                {m.role === "assistant" && m.retrievedChunks && m.retrievedChunks.length > 0 && (
+                  <RetrievedContextPanel chunks={m.retrievedChunks} />
+                )}
                 {m.role === "assistant" && m.graphSteps && m.graphSteps.length > 0 && (
                   <GraphExecutionPanel steps={m.graphSteps} />
                 )}

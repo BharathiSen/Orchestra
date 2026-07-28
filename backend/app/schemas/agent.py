@@ -9,6 +9,7 @@ class AgentCreate(BaseModel):
     description: str | None = None
     system_prompt: str = Field(default="", max_length=20000)
     model_name: str = Field(default="llama-3.1-8b-instant", min_length=1, max_length=100)
+    knowledge_base_ids: list[int] = Field(default_factory=list)
 
 
 class AgentUpdate(BaseModel):
@@ -17,6 +18,7 @@ class AgentUpdate(BaseModel):
     system_prompt: str | None = Field(default=None, max_length=20000)
     model_name: str | None = Field(default=None, min_length=1, max_length=100)
     project_id: int | None = None
+    knowledge_base_ids: list[int] | None = None
 
 
 class AgentResponse(BaseModel):
@@ -28,5 +30,6 @@ class AgentResponse(BaseModel):
     system_prompt: str
     model_name: str
     project_id: int
+    knowledge_base_ids: list[int] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

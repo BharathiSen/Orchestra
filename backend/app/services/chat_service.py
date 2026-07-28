@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.graph import build_agent_graph
 from app.models import Agent, Conversation, Message, Project, User
+from app.rag.service import RagService
 from app.repositories.chat_repository import ConversationRepository, MessageRepository
 from app.schemas import ChatRequest, ConversationCreate, ConversationUpdate
 from app.services.llm_provider import (
@@ -35,6 +36,7 @@ class ChatService:
         self.conversations = ConversationRepository(db)
         self.messages = MessageRepository(db)
         self.tools = ensure_default_tools()
+        self.rag = RagService(db)
 
     def _owned_project(self, *, project_id: int, user: User) -> Project:
         project = self.db.get(Project, project_id)
@@ -195,14 +197,38 @@ class ChatService:
         )
 
         enable_tools = bool(payload.enable_tools)
+        base_system_prompt = self._resolve_system_prompt(
+            payload=payload,
+            agent=agent,
+            enable_tools=enable_tools,
+        )
+
+        retrieved_chunks: list[dict[str, Any]] = []
+        if agent and getattr(agent, "knowledge_bases", None):
+            kb_ids = [kb.id for kb in agent.knowledge_bases]
+            chunks = self.rag.retrieve_chunks_for_question(
+                question=payload.message,
+                knowledge_base_ids=kb_ids,
+                top_k=5,
+            )
+            if chunks:
+                retrieved_chunks = self.rag.serialize_chunks(chunks)
+                base_system_prompt = self.rag.build_grounded_prompt(
+                    base_system_prompt=base_system_prompt,
+                    retrieved_chunks=chunks,
+                )
+                yield _sse(
+                    {
+                        "type": "retrieved_context",
+                        "count": len(retrieved_chunks),
+                        "chunks": retrieved_chunks,
+                    }
+                )
+
         llm_messages: list[dict[str, Any]] = [
             {
                 "role": "system",
-                "content": self._resolve_system_prompt(
-                    payload=payload,
-                    agent=agent,
-                    enable_tools=enable_tools,
-                ),
+                "content": base_system_prompt,
             }
         ]
         for msg in history:

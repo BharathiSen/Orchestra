@@ -35,3 +35,8 @@ class KnowledgeBase(Base):
         back_populates="knowledge_base",
         cascade="all, delete-orphan",
     )
+    agents: Mapped[list["Agent"]] = relationship(
+        "Agent",
+        secondary="agent_knowledge_bases",
+        back_populates="knowledge_bases",
+    )

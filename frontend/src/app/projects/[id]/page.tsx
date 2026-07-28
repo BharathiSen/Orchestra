@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { ApiError, api, type Agent, type Project } from "@/lib/api";
+import { ApiError, api, type Agent, type KnowledgeBase, type Project } from "@/lib/api";
 import { clearSession, getToken } from "@/lib/auth";
 
 type DialogMode = "create" | "edit" | null;
@@ -14,6 +14,7 @@ const emptyForm = {
   description: "",
   system_prompt: "",
   model_name: "llama-3.1-8b-instant",
+  knowledge_base_ids: [] as number[],
 };
 
 export default function ProjectDetailPage() {
@@ -24,6 +25,7 @@ export default function ProjectDetailPage() {
   const [token, setToken] = useState<string | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogMode>(null);
@@ -33,12 +35,14 @@ export default function ProjectDetailPage() {
 
   const load = useCallback(
     async (authToken: string) => {
-      const [projectData, agentList] = await Promise.all([
+      const [projectData, agentList, kbList] = await Promise.all([
         api.getProject(authToken, projectId),
         api.listAgents(authToken, projectId),
+        api.listKnowledgeBases(authToken, projectId),
       ]);
       setProject(projectData);
       setAgents(agentList);
+      setKnowledgeBases(kbList);
     },
     [projectId],
   );
@@ -81,6 +85,7 @@ export default function ProjectDetailPage() {
       description: agent.description || "",
       system_prompt: agent.system_prompt,
       model_name: agent.model_name,
+      knowledge_base_ids: agent.knowledge_base_ids || [],
     });
     setError(null);
     setDialog("edit");
@@ -105,6 +110,7 @@ export default function ProjectDetailPage() {
           description: form.description || undefined,
           system_prompt: form.system_prompt,
           model_name: form.model_name,
+          knowledge_base_ids: form.knowledge_base_ids,
         });
       } else if (dialog === "edit" && editingAgent) {
         await api.updateAgent(token, editingAgent.id, {
@@ -112,6 +118,7 @@ export default function ProjectDetailPage() {
           description: form.description || undefined,
           system_prompt: form.system_prompt,
           model_name: form.model_name,
+          knowledge_base_ids: form.knowledge_base_ids,
         });
       }
       closeDialog();
@@ -240,6 +247,14 @@ export default function ProjectDetailPage() {
                     Model: {agent.model_name} · Updated{" "}
                     {new Date(agent.updated_at).toLocaleString()}
                   </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Knowledge bases:{" "}
+                    {agent.knowledge_base_ids?.length
+                      ? agent.knowledge_base_ids
+                          .map((id) => knowledgeBases.find((kb) => kb.id === id)?.name || `KB ${id}`)
+                          .join(", ")
+                      : "None"}
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -327,6 +342,39 @@ export default function ProjectDetailPage() {
                 placeholder="You are a helpful research assistant..."
               />
             </label>
+
+            <fieldset className="mt-3 rounded-lg border border-slate-200 p-3">
+              <legend className="px-1 text-sm font-medium text-slate-700">Knowledge Bases</legend>
+              <p className="mb-2 text-xs text-slate-500">
+                Attach knowledge bases for retrieval-augmented responses in chat.
+              </p>
+              {knowledgeBases.length === 0 ? (
+                <p className="text-xs text-slate-500">No knowledge bases in this project.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {knowledgeBases.map((kb) => {
+                    const checked = form.knowledge_base_ids.includes(kb.id);
+                    return (
+                      <label key={kb.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              knowledge_base_ids: e.target.checked
+                                ? [...f.knowledge_base_ids, kb.id]
+                                : f.knowledge_base_ids.filter((id) => id !== kb.id),
+                            }))
+                          }
+                        />
+                        <span>{kb.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </fieldset>
 
             {error && (
               <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">

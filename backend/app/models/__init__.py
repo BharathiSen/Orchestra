@@ -1,4 +1,5 @@
 from app.models.agent import Agent
+from app.models.agent_knowledge_base import AgentKnowledgeBase
 from app.models.conversation import Conversation
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
@@ -11,6 +12,7 @@ __all__ = [
     "User",
     "Project",
     "Agent",
+    "AgentKnowledgeBase",
     "Conversation",
     "Message",
     "KnowledgeBase",

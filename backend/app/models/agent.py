@@ -34,3 +34,8 @@ class Agent(Base):
     )
 
     project: Mapped["Project"] = relationship("Project", back_populates="agents")
+    knowledge_bases: Mapped[list["KnowledgeBase"]] = relationship(
+        "KnowledgeBase",
+        secondary="agent_knowledge_bases",
+        back_populates="agents",
+    )
