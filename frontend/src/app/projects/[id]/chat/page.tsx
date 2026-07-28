@@ -77,7 +77,6 @@ function ToolPanel({ tools }: { tools: ToolEvent[] }) {
 
 function GraphExecutionPanel({ steps }: { steps: GraphStepEvent[] }) {
   if (!steps.length) return null;
-
   const nodeLabel: Record<GraphNodeName, string> = {
     planner: "Planner",
     tool: "Tool",
