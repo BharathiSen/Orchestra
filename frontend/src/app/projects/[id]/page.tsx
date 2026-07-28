@@ -13,7 +13,7 @@ const emptyForm = {
   name: "",
   description: "",
   system_prompt: "",
-  model_name: "gemini-2.0-flash",
+  model_name: "llama-3.1-8b-instant",
 };
 
 export default function ProjectDetailPage() {
@@ -311,7 +311,7 @@ export default function ProjectDetailPage() {
                   setForm((f) => ({ ...f, model_name: e.target.value }))
                 }
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-accent focus:ring-2"
-                placeholder="gemini-2.0-flash"
+                placeholder="llama-3.1-8b-instant"
               />
             </label>
 

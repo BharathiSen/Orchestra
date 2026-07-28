@@ -19,7 +19,7 @@ FastAPI (knowledge router)
   │
   ├─ save file (uploads volume)
   ├─ extract text (PyMuPDF / python-docx)
-  ├─ chunk text (800 chars, 100 overlap)
+  ├─ boundary-aware chunk text (~400 tokens, ~80 overlap)
   ├─ embed chunks (fastembed — BAAI/bge-small-en-v1.5, 384-d)
   └─ store vectors + metadata
          │

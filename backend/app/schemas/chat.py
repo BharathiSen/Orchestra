@@ -7,7 +7,7 @@ class ConversationCreate(BaseModel):
     project_id: int
     title: str = Field(default="New conversation", min_length=1, max_length=255)
     agent_id: int | None = None
-    model_name: str = Field(default="gemini-2.0-flash", min_length=1, max_length=100)
+    model_name: str = Field(default="llama-3.1-8b-instant", min_length=1, max_length=100)
 
 
 class ConversationUpdate(BaseModel):

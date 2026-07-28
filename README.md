@@ -63,17 +63,14 @@ docker compose --env-file ../.env up --build
 ## AI Engineering
 
 - LLM Integration (Gemini/Groq/Ollama)
-- Tool Calling (Day 4 registry)
-- LangGraph agent workflow (Day 5)
-- Knowledge Base ingestion — upload, chunk, embed, pgvector (Day 6)
-- Multi-Agent Workflows
-- Structured Outputs
+- Tool Calling
+- LangGraph agent workflow 
+- Knowledge Base ingestion — upload, chunk, embed, pgvector
 - Streaming Responses
-- Conversation Memory
 
 ---
 
-## Knowledge Layer (Day 6)
+## Knowledge Layer
 
 - Document Upload (PDF, DOCX, TXT)
 - Text extraction (PyMuPDF / python-docx)
@@ -112,19 +109,19 @@ docker compose --env-file ../.env up --build
 ```
                 Next.js Frontend
                        │
-                 REST / WebSocket
+                       REST
                        │
                 FastAPI Backend
                        │
-     ┌─────────────────┼──────────────────┐
-     │                 │                  │
- PostgreSQL         Redis           Vector DB
-     │                 │                  │
-     └─────────────────┼──────────────────┘
+     ┌─────────────────┼─────────────────┐
+     │                 │
+ PostgreSQL         Redis
+     │                 │
+     └─────────────────┼─────────────────┘
                        │
                   LangGraph Runtime
                        │
-      Planner → Tools → Memory → Reviewer
+      Planner → Tools → Reviewer → Answer
                        │
                    LLM Providers
 ```
@@ -139,8 +136,6 @@ docker compose --env-file ../.env up --build
 - React
 - TypeScript
 - Tailwind CSS
-- shadcn/ui
-- React Flow
 
 ---
 
@@ -149,7 +144,6 @@ docker compose --env-file ../.env up --build
 - FastAPI
 - Python
 - SQLAlchemy
-- Alembic
 - PostgreSQL
 - Redis
 
@@ -170,7 +164,6 @@ docker compose --env-file ../.env up --build
 
 - Docker
 - Docker Compose
-- GitHub Actions
 
 ---
 

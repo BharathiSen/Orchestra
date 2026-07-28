@@ -8,7 +8,7 @@ class AgentCreate(BaseModel):
     project_id: int
     description: str | None = None
     system_prompt: str = Field(default="", max_length=20000)
-    model_name: str = Field(default="gemini-2.0-flash", min_length=1, max_length=100)
+    model_name: str = Field(default="llama-3.1-8b-instant", min_length=1, max_length=100)
 
 
 class AgentUpdate(BaseModel):

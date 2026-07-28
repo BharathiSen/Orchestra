@@ -178,13 +178,19 @@ Returns supported models for the active provider and whether it is configured.
 }
 ```
 
-**SSE event types:** `meta`, `user_message`, `tool_start`, `tool_result`, `token`, `done`, `error`
+**SSE event types:** `meta`, `user_message`, `tool_start`, `tool_result`, `graph_step`, `token`, `done`, `error`
 
 Example tool events:
 
 ```json
 { "type": "tool_start", "tool_call_id": "call_abc", "tool_name": "calculator", "arguments": "{\"expression\":\"24*18\"}", "status": "running" }
 { "type": "tool_result", "tool_call_id": "call_abc", "tool_name": "calculator", "status": "complete", "result": "432" }
+```
+
+Example LangGraph event:
+
+```json
+{ "type": "graph_step", "node": "planner", "status": "done", "summary": "Planned 1 tool call(s)." }
 ```
 
 ---
@@ -298,7 +304,7 @@ Processing runs in the background. Poll `GET /documents/{id}` or list documents 
     "document_id": 1,
     "chunk_index": 0,
     "content": "First chunk text...",
-    "metadata": { "char_start": 0, "char_end": 800 },
+    "metadata": { "unit_start": 0, "unit_end": 5, "token_count": 392 },
     "created_at": "2026-07-28T12:00:05Z"
   }
 ]

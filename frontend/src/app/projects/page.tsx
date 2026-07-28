@@ -7,6 +7,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { ApiError, api, type Project } from "@/lib/api";
 import { clearSession, getToken } from "@/lib/auth";
 
+type DialogMode = "edit" | null;
+
 export default function ProjectsPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -16,6 +18,11 @@ export default function ProjectsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [dialog, setDialog] = useState<DialogMode>(null);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [updatingProject, setUpdatingProject] = useState(false);
 
   async function loadProjects(authToken: string) {
     const data = await api.listProjects(authToken);
@@ -64,6 +71,40 @@ export default function ProjectsPage() {
       await loadProjects(token);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to delete project");
+    }
+  }
+
+  function openEdit(project: Project) {
+    setEditingProject(project);
+    setEditName(project.name);
+    setEditDescription(project.description || "");
+    setDialog("edit");
+    setError(null);
+  }
+
+  function closeDialog() {
+    setDialog(null);
+    setEditingProject(null);
+    setEditName("");
+    setEditDescription("");
+  }
+
+  async function onUpdateProject(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !editingProject) return;
+    setUpdatingProject(true);
+    setError(null);
+    try {
+      await api.updateProject(token, editingProject.id, {
+        name: editName,
+        description: editDescription || undefined,
+      });
+      closeDialog();
+      await loadProjects(token);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to update project");
+    } finally {
+      setUpdatingProject(false);
     }
   }
 
@@ -155,23 +196,82 @@ export default function ProjectsPage() {
                 </p>
               </Link>
               <div className="mt-4 flex items-center justify-between gap-3">
-                <Link
-                  href={`/projects/${project.id}`}
-                  className="text-sm font-medium text-accent hover:underline"
-                >
+                <Link href={`/projects/${project.id}`} className="text-sm font-medium text-accent hover:underline">
                   Open agents →
                 </Link>
-                <button
-                  onClick={() => onDelete(project.id)}
-                  className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                >
-                  Delete
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => openEdit(project)}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => onDelete(project.id)}
+                    className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </article>
           ))
         )}
       </section>
+
+      {dialog === "edit" && editingProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+          <form
+            onSubmit={onUpdateProject}
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-lg"
+          >
+            <h2 className="font-display text-xl font-semibold">Edit Project</h2>
+            <p className="mt-1 text-sm text-slate-600">Update the project name and description.</p>
+
+            <label className="mt-4 block text-sm">
+              <span className="mb-1 block text-slate-600">Name</span>
+              <input
+                required
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-accent focus:ring-2"
+              />
+            </label>
+
+            <label className="mt-3 block text-sm">
+              <span className="mb-1 block text-slate-600">Description</span>
+              <input
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-accent focus:ring-2"
+              />
+            </label>
+
+            {error && (
+              <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDialog}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={updatingProject}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+              >
+                {updatingProject ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   );
 }
