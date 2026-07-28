@@ -84,12 +84,6 @@ function GraphExecutionPanel({ steps }: { steps: GraphStepEvent[] }) {
     reviewer: "Reviewer",
     answer: "Final Answer",
   };
-  const nodeIcon: Record<GraphNodeName, string> = {
-    planner: "🧠",
-    tool: "🔧",
-    reviewer: "🧐",
-    answer: "💬",
-  };
 
   const latestByNode = new Map<GraphNodeName, GraphStepEvent>();
   for (const step of steps) {
@@ -119,9 +113,7 @@ function GraphExecutionPanel({ steps }: { steps: GraphStepEvent[] }) {
           return (
             <div key={node}>
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">
-                  {nodeIcon[node]} {nodeLabel[node]}
-                </span>
+                <span className="font-medium">{nodeLabel[node]}</span>
                 <span className={statusClass}>{statusText}</span>
               </div>
               {step?.summary && (
