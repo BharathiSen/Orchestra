@@ -37,6 +37,8 @@ class Settings(BaseSettings):
         "and never fabricate APIs or library behavior."
     )
 
+    upload_dir: str = "uploads"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

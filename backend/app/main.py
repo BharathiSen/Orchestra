@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api.v1 import api_router
 from app.core.config import settings
@@ -12,6 +13,8 @@ from app import models  # noqa: F401
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(bind=engine)
     redis = get_redis()
     try:

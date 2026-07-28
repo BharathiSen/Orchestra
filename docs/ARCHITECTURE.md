@@ -1,12 +1,60 @@
-# Architecture — Days 1–4
+# Architecture — Days 1–6
 
 ## Principle
 
 Days 1–2 built the platform (auth, projects, agents).  
 Day 3 introduced LLM chat + SSE streaming.  
-**Day 4 adds tool calling:** the model can request structured tool runs via a registry, then produce a grounded final answer.
+Day 4 adds tool calling via a registry.  
+Day 5 adds LangGraph orchestration (planner → tool → reviewer → answer).  
+**Day 6 adds knowledge ingestion:** upload documents, extract text, chunk, embed, store in pgvector. No RAG query yet.
 
-## Day 4 architecture
+## Day 6 architecture
+
+```text
+User
+  │
+  Upload PDF / DOCX / TXT
+  │
+FastAPI (knowledge router)
+  │
+  ├─ save file (uploads volume)
+  ├─ extract text (PyMuPDF / python-docx)
+  ├─ chunk text (800 chars, 100 overlap)
+  ├─ embed chunks (fastembed — BAAI/bge-small-en-v1.5, 384-d)
+  └─ store vectors + metadata
+         │
+         ├─ PostgreSQL + pgvector (embeddings)
+         └─ PostgreSQL (document + chunk metadata)
+```
+
+## Knowledge module layout
+
+| File | Responsibility |
+|------|----------------|
+| `knowledge/upload.py` | Validate upload, save file, extract text |
+| `knowledge/chunker.py` | Split text into overlapping chunks |
+| `knowledge/embedding.py` | Generate dense vectors (fastembed) |
+| `knowledge/vector_store.py` | Persist chunks + embeddings |
+| `knowledge/service.py` | Ownership checks + ingestion pipeline |
+| `knowledge/router.py` | REST endpoints |
+
+## Layers (Day 6)
+
+| Layer | Pieces |
+|-------|--------|
+| API | `knowledge/router.py` |
+| Service | `knowledge/service.py` — background processing |
+| Repository | `repositories/knowledge_repository.py` |
+| Models | `KnowledgeBase`, `Document`, `DocumentChunk` |
+| Infra | pgvector extension, `pgvector/pgvector:pg16` Postgres image |
+
+## What Day 6 does **not** include
+
+- Similarity search / RAG retrieval (Day 7)
+- Chat integration with knowledge bases
+- Replacing the mock `search` tool with real vector search
+
+## Day 4 architecture (unchanged)
 
 ```text
                 User
@@ -36,13 +84,14 @@ Day 3 introduced LLM chat + SSE streaming.
 
 ## Layers
 
-| Layer | Day 4 pieces |
+| Layer | Day 4–5 pieces |
 |-------|----------------|
 | API | `api/v1/chat.py` — `/chat`, `/tools`, conversations |
-| Service | `chat_service.py` tool loop; `openai_compatible_service.py` / `gemini_service.py` |
-| Tools | `tools/base.py`, `registry.py`, `calculator.py`, `weather.py`, `search.py` |
-| Repository | unchanged conversations/messages |
-| Models | still `Conversation` / `Message` (user + assistant only) |
+| Service | `chat_service.py` LangGraph flow; LLM providers |
+| Graph | `graph/state.py`, `nodes.py`, `workflow.py` |
+| Tools | `tools/base.py`, `registry.py`, calculator/weather/search |
+| Repository | conversations/messages; knowledge (Day 6) |
+| Models | `Conversation` / `Message`; knowledge tables (Day 6) |
 
 ## Tool-calling data flow
 
@@ -50,11 +99,10 @@ Day 3 introduced LLM chat + SSE streaming.
 2. FastAPI verifies JWT + project ownership  
 3. Persist user message  
 4. Build LLM payload: system (+ tool guidance) + history + `tools[]` schemas  
-5. Non-streaming **decision round**: model returns text **or** `tool_calls`  
-6. For each tool call (capped) → SSE `tool_start` → `ToolRegistry.execute` → SSE `tool_result`  
-7. Append assistant tool-call + tool result messages to the in-memory transcript  
-8. **Final answer pass with tools disabled** (stream tokens) — prevents infinite tool loops  
-9. Persist assistant message; SSE `done`
+5. LangGraph runs planner → tool → reviewer → answer  
+6. For each tool call → SSE `tool_start` / `tool_result` + `graph_step`  
+7. Stream final answer tokens  
+8. Persist assistant message; SSE `done`
 
 ## Built-in tools
 
@@ -62,23 +110,17 @@ Day 3 introduced LLM chat + SSE streaming.
 |------|----------------|
 | `calculator` | Safe AST arithmetic (no `eval`) |
 | `weather` | Live **Open-Meteo** (geocode city → lat/lon → current weather); mock fallback if offline |
-| `search` | Mock Orchestra knowledge snippets (stand-in until RAG Days 6–7) |
+| `search` | Mock Orchestra knowledge snippets (stand-in until RAG Day 7) |
 
-## Why a Tool Registry?
-
-Without it, chat code becomes `if tool == "weather"` forever.  
-With it: register once, look up by name, execute. Adding a tool never changes the chat pipeline.
-
-## SSE events (Day 4)
+## SSE events
 
 ```text
-meta | user_message | tool_start | tool_result | token | done | error
+meta | user_message | tool_start | tool_result | graph_step | token | done | error
 ```
 
-## What Day 4 does **not** change
+## What stays the same
 
 - Auth / projects / agents CRUD  
-- Conversation + message persistence model (ADR-011 still holds)  
-- No new DB tables for tools (ADR-013: live SSE only)  
-- Redis still unused for memory (Day 8)  
-- Frontend UI does not show “Day N” labels (product copy only)
+- Conversation + message persistence (user + assistant only)  
+- No tool-trace DB tables yet  
+- Redis still unused for memory (Day 8)

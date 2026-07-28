@@ -10,6 +10,13 @@ from app.schemas.chat import (
     ToolInfo,
     ToolsResponse,
 )
+from app.schemas.knowledge import (
+    ChunkResponse,
+    DocumentResponse,
+    KnowledgeBaseCreate,
+    KnowledgeBaseResponse,
+    KnowledgeBaseUpdate,
+)
 from app.schemas.project import ProjectCreate, ProjectOut, ProjectUpdate
 from app.schemas.user import TokenOut, UserCreate, UserLogin, UserOut
 
@@ -33,4 +40,9 @@ __all__ = [
     "ModelsResponse",
     "ToolInfo",
     "ToolsResponse",
+    "KnowledgeBaseCreate",
+    "KnowledgeBaseUpdate",
+    "KnowledgeBaseResponse",
+    "DocumentResponse",
+    "ChunkResponse",
 ]

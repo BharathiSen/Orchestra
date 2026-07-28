@@ -1,4 +1,4 @@
-# API Contracts — Days 1–4
+# API Contracts — Days 1–6
 
 Base URL (Docker defaults on this machine): `http://localhost:18000`  
 API prefix: `/api/v1`  
@@ -235,6 +235,79 @@ Built-in tools:
 - `404` project/conversation not owned
 - `503` provider credentials missing
 - Provider auth/quota / tool errors surfaced in SSE `error` or `tool_result`
+
+---
+
+## Knowledge Base (Day 6)
+
+Ingestion only — upload, extract, chunk, embed, store. **No RAG query yet.**
+
+| Method | Path | Notes |
+|--------|------|--------|
+| GET | `/api/v1/knowledge-bases?project_id=` | List knowledge bases |
+| POST | `/api/v1/knowledge-bases` | Create |
+| GET | `/api/v1/knowledge-bases/{id}` | Get one |
+| PATCH | `/api/v1/knowledge-bases/{id}` | Update name/description |
+| DELETE | `/api/v1/knowledge-bases/{id}` | Delete (204) |
+| GET | `/api/v1/knowledge-bases/{id}/documents` | List documents |
+| POST | `/api/v1/knowledge-bases/{id}/documents` | Upload file (multipart) |
+| GET | `/api/v1/documents/{id}` | Get document status |
+| GET | `/api/v1/documents/{id}/chunks` | List chunks (debug UI) |
+| DELETE | `/api/v1/documents/{id}` | Delete document (204) |
+
+### `POST /api/v1/knowledge-bases`
+
+```json
+{
+  "project_id": 1,
+  "name": "Research Papers",
+  "description": "AI and systems papers"
+}
+```
+
+### `POST /api/v1/knowledge-bases/{id}/documents`
+
+**Content-Type:** `multipart/form-data`  
+**Field:** `file` — PDF, DOCX, or TXT (max 20 MB)
+
+**Response 201** — `DocumentResponse`
+
+```json
+{
+  "id": 1,
+  "knowledge_base_id": 1,
+  "filename": "AI.pdf",
+  "content_type": "application/pdf",
+  "status": "processing",
+  "chunk_count": 0,
+  "embedding_status": "pending",
+  "error_message": null,
+  "created_at": "2026-07-28T12:00:00Z",
+  "updated_at": "2026-07-28T12:00:00Z"
+}
+```
+
+Processing runs in the background. Poll `GET /documents/{id}` or list documents until `status` is `processed` or `failed`.
+
+### `GET /api/v1/documents/{id}/chunks`
+
+```json
+[
+  {
+    "id": 1,
+    "document_id": 1,
+    "chunk_index": 0,
+    "content": "First chunk text...",
+    "metadata": { "char_start": 0, "char_end": 800 },
+    "created_at": "2026-07-28T12:00:05Z"
+  }
+]
+```
+
+**Errors**
+- `400` unsupported file type or file too large
+- `401` invalid JWT
+- `404` project/knowledge base/document not owned
 
 ---
 

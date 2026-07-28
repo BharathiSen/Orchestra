@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: orchestra-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-orchestra}
@@ -50,10 +50,12 @@ services:
       GROQ_DEFAULT_MODEL: ${GROQ_DEFAULT_MODEL:-llama-3.1-8b-instant}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-llama3.2}
+      UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ../backend:/app
+      - upload_data:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,3 +83,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  upload_data:

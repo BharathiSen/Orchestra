@@ -95,6 +95,32 @@ Monorepo, Docker, JWT auth, Projects CRUD, Login → Dashboard → Projects.
 - Disabling tools falls back to plain streaming chat
 - No “Day N” labels in the product UI (docs only)
 
+## Day 5 scope (done)
+
+LangGraph workflow: planner → tool → reviewer → answer. SSE `graph_step` events + execution panel in chat UI.
+
+## Day 6 scope (must have)
+
+| Feature | Requirement |
+|---------|-------------|
+| Knowledge bases | CRUD under a project |
+| Documents | Upload PDF, DOCX, TXT |
+| Extraction | PyMuPDF / python-docx / plain text |
+| Chunking | Fixed-size chunks with overlap |
+| Embeddings | Local model (fastembed, 384-d) |
+| Vector storage | pgvector in PostgreSQL |
+| Metadata | Filename, chunk text, status in Postgres |
+| UI | Knowledge Base page, upload, status, chunk inspector |
+| No RAG yet | Ingestion only — no chat retrieval |
+
+## Success criteria (Day 6)
+
+- User creates a knowledge base and uploads a PDF
+- Document moves from `processing` to `processed`
+- Chunks and embeddings stored; chunk count visible in UI
+- Clicking a document shows chunk previews for debugging
+- Invalid file types rejected gracefully
+
 ## Out of scope until later days
 
-See root `PLAN.md` (Days 5–10 + v2).
+See root `PLAN.md` (Days 7–10 + v2). Day 7 adds similarity search and RAG in chat.

@@ -44,3 +44,5 @@ Thumbs.db
 # Docker volumes / logs
 *.log
 docker/data/
+backend/uploads/
+uploads/

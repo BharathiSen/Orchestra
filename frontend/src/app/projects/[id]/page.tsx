@@ -166,6 +166,12 @@ export default function ProjectDetailPage() {
             Open Chat
           </Link>
           <Link
+            href={`/projects/${projectId}/knowledge`}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+          >
+            Knowledge Base
+          </Link>
+          <Link
             href="/dashboard"
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
           >
@@ -179,6 +185,33 @@ export default function ProjectDetailPage() {
           </button>
         </div>
       </header>
+
+      <nav className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+        <Link
+          href="/dashboard"
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+        >
+          Dashboard
+        </Link>
+        <Link
+          href={`/projects/${projectId}`}
+          className="rounded-lg bg-accent/10 px-3 py-1.5 text-sm font-semibold text-accent"
+        >
+          Agents
+        </Link>
+        <Link
+          href={`/projects/${projectId}/knowledge`}
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+        >
+          Knowledge Base
+        </Link>
+        <Link
+          href={`/projects/${projectId}/chat`}
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+        >
+          Chat
+        </Link>
+      </nav>
 
       {error && !dialog && (
         <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">

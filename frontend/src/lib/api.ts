@@ -49,6 +49,38 @@ export type ChatModel = {
   description: string;
 };
 
+export type KnowledgeBase = {
+  id: number;
+  project_id: number;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  document_count: number;
+};
+
+export type DocumentRecord = {
+  id: number;
+  knowledge_base_id: number;
+  filename: string;
+  content_type: string | null;
+  status: string;
+  chunk_count: number;
+  embedding_status: string;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChunkRecord = {
+  id: number;
+  document_id: number;
+  chunk_index: number;
+  content: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
 export type AuthResponse = {
   access_token: string;
   token_type: string;
@@ -391,4 +423,59 @@ export const api = {
       {},
       token,
     ),
+
+  listKnowledgeBases: (token: string, projectId: number) =>
+    request<KnowledgeBase[]>(
+      `/api/v1/knowledge-bases?project_id=${projectId}`,
+      {},
+      token,
+    ),
+  createKnowledgeBase: (
+    token: string,
+    body: { project_id: number; name: string; description?: string },
+  ) =>
+    request<KnowledgeBase>(
+      "/api/v1/knowledge-bases",
+      { method: "POST", body: JSON.stringify(body) },
+      token,
+    ),
+  getKnowledgeBase: (token: string, id: number) =>
+    request<KnowledgeBase>(`/api/v1/knowledge-bases/${id}`, {}, token),
+  deleteKnowledgeBase: (token: string, id: number) =>
+    request<void>(`/api/v1/knowledge-bases/${id}`, { method: "DELETE" }, token),
+  listDocuments: (token: string, knowledgeBaseId: number) =>
+    request<DocumentRecord[]>(
+      `/api/v1/knowledge-bases/${knowledgeBaseId}/documents`,
+      {},
+      token,
+    ),
+  uploadDocument: async (token: string, knowledgeBaseId: number, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(
+      `${API_URL}/api/v1/knowledge-bases/${knowledgeBaseId}/documents`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      },
+    );
+    if (!response.ok) {
+      let detail = "Upload failed";
+      try {
+        const data = await response.json();
+        detail = data.detail || detail;
+      } catch {
+        // ignore
+      }
+      throw new ApiError(response.status, detail);
+    }
+    return response.json() as Promise<DocumentRecord>;
+  },
+  getDocument: (token: string, docId: number) =>
+    request<DocumentRecord>(`/api/v1/documents/${docId}`, {}, token),
+  listDocumentChunks: (token: string, docId: number) =>
+    request<ChunkRecord[]>(`/api/v1/documents/${docId}/chunks`, {}, token),
+  deleteDocument: (token: string, docId: number) =>
+    request<void>(`/api/v1/documents/${docId}`, { method: "DELETE" }, token),
 };

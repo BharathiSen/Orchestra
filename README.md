@@ -6,7 +6,6 @@
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
 ![Next.js](https://img.shields.io/badge/Next.js-15-black)
-![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
 
@@ -45,16 +44,6 @@ docker compose --env-file ../.env up --build
 | API docs | http://localhost:18000/docs |
 | Health | http://localhost:18000/health |
 
-**Login:** there is **no default admin**. Use **Sign up** on the login page to create your own account (password min 8 characters), then sign in with those credentials.
-
-
-**Gemini / Groq / Ollama (Day 3+):**  
-- Free testing: `LLM_PROVIDER=groq` + `GROQ_API_KEY` from https://console.groq.com/keys  
-- Fully local free: `LLM_PROVIDER=ollama` (install Ollama, `ollama pull llama3.2`)  
-- Production: `LLM_PROVIDER=gemini` + `GEMINI_API_KEY`  
-Then restart the backend. Chat: `/projects/{id}/chat` (tools enabled by default; weather uses Open-Meteo — no weather API key).
-
-Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/manual_testing.md`) are gitignored.
 
 ---
 
@@ -75,8 +64,8 @@ Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/ma
 
 - LLM Integration (Gemini/Groq/Ollama)
 - Tool Calling (Day 4 registry)
-- LangChain
-- LangGraph
+- LangGraph agent workflow (Day 5)
+- Knowledge Base ingestion — upload, chunk, embed, pgvector (Day 6)
 - Multi-Agent Workflows
 - Structured Outputs
 - Streaming Responses
@@ -84,13 +73,14 @@ Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/ma
 
 ---
 
-## Knowledge Layer
+## Knowledge Layer (Day 6)
 
-- Document Upload
-- Embeddings
-- Vector Database
-- Semantic Search
-- Retrieval-Augmented Generation (RAG)
+- Document Upload (PDF, DOCX, TXT)
+- Text extraction (PyMuPDF / python-docx)
+- Chunking with overlap
+- Embeddings (fastembed — BAAI/bge-small-en-v1.5)
+- Vector storage (pgvector in PostgreSQL)
+- Chunk inspector UI for debugging
 
 ---
 

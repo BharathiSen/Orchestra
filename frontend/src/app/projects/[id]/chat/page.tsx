@@ -445,6 +445,12 @@ export default function ProjectChatPage() {
             Agents
           </Link>
           <Link
+            href={`/projects/${projectId}/knowledge`}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+          >
+            Knowledge Base
+          </Link>
+          <Link
             href="/dashboard"
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
           >
