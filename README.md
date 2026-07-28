@@ -47,11 +47,6 @@ docker compose --env-file ../.env up --build
 
 **Login:** there is **no default admin**. Use **Sign up** on the login page to create your own account (password min 8 characters), then sign in with those credentials.
 
-**Progress so far**
-- Day 1: Auth (JWT), Projects, Docker stack
-- Day 2: Agent CRUD, dashboard project cards, repository/service layers
-- Day 3: LLM chat, streaming SSE, conversations/messages, chat UI
-- Day 4: Tool calling (registry + calculator / Open-Meteo weather / search) with live tool status in chat
 
 **Gemini / Groq / Ollama (Day 3+):**  
 - Free testing: `LLM_PROVIDER=groq` + `GROQ_API_KEY` from https://console.groq.com/keys  
@@ -186,57 +181,6 @@ Private study notes (`docs/INTERVIEW_NOTES.md`) and local test scratch (`docs/ma
 - Docker
 - Docker Compose
 - GitHub Actions
-
----
-
-# 📅 Development Roadmap
-
-## Phase 1
-
-- Authentication (JWT)
-- Projects
-- Agents (CRUD)
-- Dashboard + project cards
-- Docker
-- Repository / service layers
-
----
-
-## Phase 2
-
-- LLM Integration
-- Streaming chat
-- Conversations / messages
-- Tool Calling (registry)
-- LangGraph
-
----
-
-## Phase 3
-
-- Vector Database
-- Embeddings
-- Knowledge Base
-- RAG
-
----
-
-## Phase 4
-
-- Multi-Agent
-- Memory
-- Evaluation
-- Metrics
-
----
-
-## Phase 5
-
-- Prompt Versioning
-- MCP
-- Model Routing
-- Guardrails
-- Workflow Builder
 
 ---
 
