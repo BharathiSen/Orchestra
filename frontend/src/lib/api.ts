@@ -121,12 +121,21 @@ export type ToolEvent = {
   result?: string;
 };
 
+export type GraphNodeName = "planner" | "tool" | "reviewer" | "answer";
+
+export type GraphStepEvent = {
+  node: GraphNodeName;
+  status: "running" | "done" | "error";
+  summary?: string;
+};
+
 export type ChatStreamHandlers = {
   onMeta?: (data: { conversation_id: number; title: string }) => void;
   onUserMessage?: (data: ChatMessage) => void;
   onToken?: (token: string) => void;
   onToolStart?: (data: ToolEvent) => void;
   onToolResult?: (data: ToolEvent) => void;
+  onGraphStep?: (data: GraphStepEvent) => void;
   onDone?: (data: { message_id: number; conversation_id: number }) => void;
   onError?: (detail: string) => void;
 };
@@ -204,6 +213,8 @@ export async function streamChat(
           arguments?: string;
           status?: "running" | "complete" | "error";
           result?: string;
+          node?: GraphNodeName;
+          summary?: string;
         };
 
         if (event.type === "meta" && event.conversation_id != null) {
@@ -232,6 +243,18 @@ export async function streamChat(
             tool_name: event.tool_name,
             status: event.status || "complete",
             result: event.result,
+          });
+        } else if (
+          event.type === "graph_step" &&
+          event.node &&
+          (event.status === "running" ||
+            event.status === "done" ||
+            event.status === "error")
+        ) {
+          handlers.onGraphStep?.({
+            node: event.node,
+            status: event.status,
+            summary: event.summary,
           });
         } else if (event.type === "token" && event.content) {
           handlers.onToken?.(event.content);

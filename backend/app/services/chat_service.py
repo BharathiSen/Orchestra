@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.graph import build_agent_graph
 from app.models import Agent, Conversation, Message, Project, User
 from app.repositories.chat_repository import ConversationRepository, MessageRepository
 from app.schemas import ChatRequest, ConversationCreate, ConversationUpdate
@@ -18,11 +19,9 @@ from app.services.llm_provider import (
 )
 from app.tools import ensure_default_tools
 
-MAX_TOOL_CALLS_PER_ROUND = 3
-
 TOOL_SYSTEM_ADDENDUM = (
     "\n\nYou have access to tools. Use them when they help answer accurately "
-    "(math → calculator, weather → weather, project/AI concepts → search). "
+    "(math -> calculator, weather -> weather, project/AI concepts -> search). "
     "After tool results arrive, give a clear final answer to the user. "
     "Do not invent tool results."
 )
@@ -133,7 +132,7 @@ class ChatService:
         return cleaned[:57] + "..."
 
     def stream_chat(self, *, user: User, payload: ChatRequest) -> Iterator[str]:
-        """Yield SSE events for chat, optional tool rounds, then persist the assistant reply."""
+        """Yield SSE events for chat and persist the assistant reply."""
         if not is_llm_configured():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -217,15 +216,74 @@ class ChatService:
 
         try:
             if enable_tools and openai_tools:
-                for event in self._run_with_tools(
-                    llm=llm,
-                    llm_messages=llm_messages,
-                    model=payload.model,
-                    temperature=payload.temperature,
-                    tools=openai_tools,
-                    assistant_chunks=assistant_chunks,
-                ):
-                    yield event
+                final_answer = ""
+                node_order = ["planner", "tool", "reviewer", "answer"]
+                current_node_idx = 0
+                yield _sse({"type": "graph_step", "node": node_order[0], "status": "running"})
+
+                graph = build_agent_graph(llm=llm, registry=self.tools)
+                initial_state = {
+                    "llm_messages": llm_messages,
+                    "model": payload.model,
+                    "temperature": payload.temperature,
+                    "tools": openai_tools,
+                    "enable_tools": True,
+                }
+
+                for update in graph.stream(initial_state, stream_mode="updates"):
+                    for node_name, node_payload in update.items():
+                        summary = _extract_graph_summary(node_payload, node_name)
+
+                        while (
+                            current_node_idx < len(node_order)
+                            and node_order[current_node_idx] != node_name
+                        ):
+                            yield _sse(
+                                {
+                                    "type": "graph_step",
+                                    "node": node_order[current_node_idx],
+                                    "status": "done",
+                                }
+                            )
+                            current_node_idx += 1
+                            if current_node_idx < len(node_order):
+                                yield _sse(
+                                    {
+                                        "type": "graph_step",
+                                        "node": node_order[current_node_idx],
+                                        "status": "running",
+                                    }
+                                )
+
+                        yield _sse(
+                            {
+                                "type": "graph_step",
+                                "node": node_name,
+                                "status": "done",
+                                "summary": summary,
+                            }
+                        )
+                        current_node_idx += 1
+                        if current_node_idx < len(node_order):
+                            yield _sse(
+                                {
+                                    "type": "graph_step",
+                                    "node": node_order[current_node_idx],
+                                    "status": "running",
+                                }
+                            )
+
+                        for evt in node_payload.get("tool_events", []):
+                            yield _sse(evt)
+
+                        if node_payload.get("final_answer"):
+                            final_answer = str(node_payload["final_answer"])
+
+                if not final_answer:
+                    final_answer = "(No content returned by the graph answer node.)"
+                for token in _chunk_text(final_answer):
+                    assistant_chunks.append(token)
+                    yield _sse({"type": "token", "content": token})
             else:
                 for token in llm.stream_chat_completion(
                     messages=llm_messages,
@@ -264,112 +322,12 @@ class ChatService:
             }
         )
 
-    def _run_with_tools(
-        self,
-        *,
-        llm: Any,
-        llm_messages: list[dict[str, Any]],
-        model: str,
-        temperature: float,
-        tools: list[dict[str, Any]],
-        assistant_chunks: list[str],
-    ) -> Iterator[str]:
-        """
-        Tool-calling pipeline:
-
-        User → LLM (decide) → Tool Call? → Registry.execute → Tool result → LLM → Final answer
-
-        Safety:
-        - At most MAX_TOOL_ROUNDS decision rounds
-        - At most 3 tool calls executed per round (parallel fan-out cap)
-        - After any tool execution, force a final answer pass with tools disabled
-          so the model cannot loop forever on the same tool
-        """
-        tools_were_used = False
-
-        # Decision round — allow tools.
-        result = llm.complete_chat(
-            messages=llm_messages,
-            model=model,
-            temperature=temperature,
-            tools=tools,
-            tool_choice="auto",
-        )
-
-        if result.has_tool_calls:
-            # Cap parallel tool fan-out from a single model response.
-            selected_calls = result.tool_calls[:MAX_TOOL_CALLS_PER_ROUND]
-            assistant_msg = {
-                "role": "assistant",
-                "content": result.content,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": tc.arguments,
-                        },
-                    }
-                    for tc in selected_calls
-                ],
-            }
-            llm_messages.append(assistant_msg)
-
-            for tc in selected_calls:
-                yield _sse(
-                    {
-                        "type": "tool_start",
-                        "tool_call_id": tc.id,
-                        "tool_name": tc.name,
-                        "arguments": tc.arguments,
-                        "status": "running",
-                    }
-                )
-                try:
-                    tool_output = self.tools.execute(tc.name, tc.arguments)
-                    status_label = "complete"
-                except HTTPException as exc:
-                    tool_output = (
-                        exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
-                    )
-                    status_label = "error"
-
-                yield _sse(
-                    {
-                        "type": "tool_result",
-                        "tool_call_id": tc.id,
-                        "tool_name": tc.name,
-                        "status": status_label,
-                        "result": tool_output,
-                    }
-                )
-                llm_messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "name": tc.name,
-                        "content": tool_output,
-                    }
-                )
-
-            tools_were_used = True
-
-        elif result.content and result.content.strip():
-            for token in _chunk_text(result.content):
-                assistant_chunks.append(token)
-                yield _sse({"type": "token", "content": token})
-            return
-
-        # Final answer pass (tools disabled). Always after tools, or if decision was empty.
-        if tools_were_used or not assistant_chunks:
-            for token in llm.stream_chat_completion(
-                messages=llm_messages,
-                model=model,
-                temperature=temperature,
-            ):
-                assistant_chunks.append(token)
-                yield _sse({"type": "token", "content": token})
+def _extract_graph_summary(payload: dict[str, Any], node_name: str) -> str | None:
+    events = payload.get("graph_events") or []
+    for evt in events:
+        if evt.get("node") == node_name:
+            return evt.get("summary")
+    return None
 
 
 def _chunk_text(text: str, size: int = 24) -> Iterator[str]:

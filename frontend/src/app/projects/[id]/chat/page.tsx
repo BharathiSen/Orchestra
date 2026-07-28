@@ -12,6 +12,8 @@ import {
   type ChatMessage,
   type ChatModel,
   type Conversation,
+  type GraphNodeName,
+  type GraphStepEvent,
   type Project,
   type ToolEvent,
   type ToolInfo,
@@ -23,6 +25,7 @@ type UiMessage = {
   role: "user" | "assistant";
   content: string;
   tools?: ToolEvent[];
+  graphSteps?: GraphStepEvent[];
 };
 
 function toolLabel(name: string): string {
@@ -68,6 +71,66 @@ function ToolPanel({ tools }: { tools: ToolEvent[] }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+function GraphExecutionPanel({ steps }: { steps: GraphStepEvent[] }) {
+  if (!steps.length) return null;
+
+  const nodeLabel: Record<GraphNodeName, string> = {
+    planner: "Planner",
+    tool: "Tool",
+    reviewer: "Reviewer",
+    answer: "Final Answer",
+  };
+  const nodeIcon: Record<GraphNodeName, string> = {
+    planner: "🧠",
+    tool: "🔧",
+    reviewer: "🧐",
+    answer: "💬",
+  };
+
+  const latestByNode = new Map<GraphNodeName, GraphStepEvent>();
+  for (const step of steps) {
+    latestByNode.set(step.node, step);
+  }
+
+  const orderedNodes: GraphNodeName[] = ["planner", "tool", "reviewer", "answer"];
+
+  return (
+    <div className="mb-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+      <p className="mb-1 font-semibold text-slate-800">Execution</p>
+      <div className="space-y-1.5">
+        {orderedNodes.map((node) => {
+          const step = latestByNode.get(node);
+          const status = step?.status;
+          const statusText =
+            status === "running" ? "Running…" : status === "done" ? "✓" : status === "error" ? "Error" : "Pending";
+          const statusClass =
+            status === "running"
+              ? "text-amber-700"
+              : status === "done"
+                ? "text-teal-700"
+                : status === "error"
+                  ? "text-red-700"
+                  : "text-slate-400";
+
+          return (
+            <div key={node}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  {nodeIcon[node]} {nodeLabel[node]}
+                </span>
+                <span className={statusClass}>{statusText}</span>
+              </div>
+              {step?.summary && (
+                <p className="mt-0.5 text-[11px] text-slate-500">{step.summary}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -285,6 +348,23 @@ export default function ProjectChatPage() {
               ),
             );
           },
+          onGraphStep: (step) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      graphSteps: [
+                        ...(m.graphSteps || []).filter(
+                          (s) => !(s.node === step.node && s.status === step.status && s.summary === step.summary),
+                        ),
+                        step,
+                      ],
+                    }
+                  : m,
+              ),
+            );
+          },
           onToken: (tokenText) => {
             setMessages((prev) =>
               prev.map((m) =>
@@ -316,6 +396,8 @@ export default function ProjectChatPage() {
         setMessages((prev) => {
           const liveTools =
             prev.find((m) => m.id === assistantId)?.tools || [];
+          const liveGraphSteps =
+            prev.find((m) => m.id === assistantId)?.graphSteps || [];
           return rows
             .filter((m) => m.role === "user" || m.role === "assistant")
             .map((m: ChatMessage, idx, arr) => {
@@ -327,6 +409,7 @@ export default function ProjectChatPage() {
                 role: m.role as "user" | "assistant",
                 content: m.content,
                 tools: isLastAssistant ? liveTools : undefined,
+                graphSteps: isLastAssistant ? liveGraphSteps : undefined,
               };
             });
         });
@@ -530,6 +613,9 @@ export default function ProjectChatPage() {
                 <p className="mb-1 text-[10px] font-semibold tracking-wide uppercase opacity-70">
                   {m.role}
                 </p>
+                {m.role === "assistant" && m.graphSteps && m.graphSteps.length > 0 && (
+                  <GraphExecutionPanel steps={m.graphSteps} />
+                )}
                 {m.role === "assistant" && m.tools && m.tools.length > 0 && (
                   <ToolPanel tools={m.tools} />
                 )}
