@@ -424,7 +424,7 @@ export default function ProjectChatPage() {
   if (!project) return null;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 md:px-6">
+    <main className="mx-auto flex h-screen max-w-6xl flex-col overflow-hidden px-4 py-6 md:px-6">
       <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">
@@ -492,8 +492,8 @@ export default function ProjectChatPage() {
         </p>
       )}
 
-      <div className="grid min-h-[70vh] flex-1 gap-4 lg:grid-cols-[240px_1fr]">
-        <aside className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[240px_1fr]">
+        <aside className="min-h-0 rounded-2xl border border-slate-200 bg-white/80 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-slate-700">Conversations</h2>
             <button
@@ -504,7 +504,7 @@ export default function ProjectChatPage() {
               New
             </button>
           </div>
-          <ul className="space-y-1">
+          <ul className="max-h-[calc(100vh-240px)] space-y-1 overflow-y-auto">
             {conversations.length === 0 && (
               <li className="px-2 py-3 text-xs text-slate-500">No chats yet.</li>
             )}
@@ -538,7 +538,7 @@ export default function ProjectChatPage() {
           </ul>
         </aside>
 
-        <section className="flex flex-col rounded-2xl border border-slate-200 bg-white/80">
+        <section className="min-h-0 flex flex-col rounded-2xl border border-slate-200 bg-white/80">
           <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 p-3">
             <label className="text-xs text-slate-600">
               Model
@@ -585,7 +585,7 @@ export default function ProjectChatPage() {
             </label>
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto p-4">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
             {messages.length === 0 && (
               <p className="text-center text-sm text-slate-500">
                 Try: &quot;What is 24 * 18?&quot; or &quot;Weather in Chennai&quot; or
