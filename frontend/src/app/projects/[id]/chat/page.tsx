@@ -415,7 +415,7 @@ export default function ProjectChatPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-6">
+      <main className="mx-auto flex min-h-screen w-full max-w-[1400px] items-center justify-center px-4 md:px-6 lg:px-8">
         <p className="text-slate-500">Loading chat...</p>
       </main>
     );
@@ -424,7 +424,7 @@ export default function ProjectChatPage() {
   if (!project) return null;
 
   return (
-    <main className="mx-auto flex h-screen max-w-6xl flex-col overflow-hidden px-4 py-6 md:px-6">
+    <main className="mx-auto flex h-screen w-full max-w-[1400px] flex-col overflow-hidden px-4 py-6 md:px-6 lg:px-8">
       <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">
@@ -492,7 +492,7 @@ export default function ProjectChatPage() {
         </p>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[240px_1fr]">
+      <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="min-h-0 rounded-2xl border border-slate-200 bg-white/80 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-slate-700">Conversations</h2>
