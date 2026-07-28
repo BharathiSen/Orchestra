@@ -436,15 +436,6 @@ export default function ProjectChatPage() {
           <p className="mt-1 text-sm text-slate-600">
             Streaming chat with optional tools: calculator, weather, and search.
           </p>
-          <label className="mt-3 inline-flex items-center gap-2 rounded-lg border-2 border-teal-500 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-900">
-            <input
-              type="checkbox"
-              checked={enableTools}
-              onChange={(e) => setEnableTools(e.target.checked)}
-              className="h-4 w-4"
-            />
-            Enable tools {enableTools ? "(ON)" : "(OFF)"}
-          </label>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
@@ -582,6 +573,15 @@ export default function ProjectChatPage() {
                 onChange={(e) => setTemperature(Number(e.target.value))}
                 className="mt-2 block w-40"
               />
+            </label>
+            <label className="inline-flex items-center gap-2 rounded-lg border-2 border-teal-500 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-900">
+              <input
+                type="checkbox"
+                checked={enableTools}
+                onChange={(e) => setEnableTools(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Enable tools {enableTools ? "(ON)" : "(OFF)"}
             </label>
           </div>
 
