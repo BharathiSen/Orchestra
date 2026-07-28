@@ -1,5 +1,6 @@
-"""Split extracted text into overlapping chunks for retrieval."""
+"""Boundary-aware chunking for retrieval."""
 
+import re
 from dataclasses import dataclass
 
 
@@ -13,61 +14,125 @@ class TextChunk:
 def chunk_text(
     text: str,
     *,
-    chunk_size: int = 1000,
-    overlap: int = 150,
+    chunk_size: int = 400,
+    overlap: int = 80,
 ) -> list[TextChunk]:
     """
-    Chunk by character windows, preferring paragraph/sentence boundaries.
+    Chunk by paragraph/sentence units, then merge into token-sized windows.
 
-    ~1000 chars (~150–250 tokens) with overlap is a solid Day-6 default:
-    small enough for precise retrieval, large enough to keep context.
-    A 6-page paper should typically produce dozens of chunks, not 2.
+    Defaults target the user-requested range:
+    - chunk_size: ~400 tokens
+    - overlap: ~80 tokens
+    Chunks are emitted on unit boundaries so they do not split words.
     """
-    normalized = " ".join(text.split())
-    if not normalized:
+    if not text or not text.strip():
         return []
 
-    if len(normalized) <= chunk_size:
-        return [
-            TextChunk(
-                index=0,
-                content=normalized,
-                metadata={"char_start": 0, "char_end": len(normalized)},
-            )
-        ]
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be > 0")
+    if overlap < 0:
+        raise ValueError("overlap must be >= 0")
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
 
+    units = _build_sentence_units(text)
+    if not units:
+        return []
+
+    unit_token_counts = [_token_count(unit) for unit in units]
     chunks: list[TextChunk] = []
-    start = 0
+
+    start_idx = 0
     index = 0
-
-    while start < len(normalized):
-        end = min(start + chunk_size, len(normalized))
-
-        # Prefer breaking near a sentence boundary in the last 20% of the window.
-        if end < len(normalized):
-            window = normalized[start:end]
-            search_from = int(len(window) * 0.8)
-            boundary = -1
-            for sep in (". ", "? ", "! ", "; "):
-                pos = window.rfind(sep, search_from)
-                if pos > boundary:
-                    boundary = pos + len(sep)
-            if boundary > 0:
-                end = start + boundary
-
-        piece = normalized[start:end].strip()
-        if piece:
-            chunks.append(
-                TextChunk(
-                    index=index,
-                    content=piece,
-                    metadata={"char_start": start, "char_end": end},
-                )
-            )
-            index += 1
-
-        if end >= len(normalized):
+    while start_idx < len(units):
+        end_idx = _max_end_for_chunk(
+            start_idx=start_idx,
+            token_budget=chunk_size,
+            unit_token_counts=unit_token_counts,
+        )
+        chunk_units = units[start_idx:end_idx]
+        chunk_text_value = " ".join(chunk_units).strip()
+        if not chunk_text_value:
             break
-        start = max(end - overlap, start + 1)
+
+        token_count = _token_count(chunk_text_value)
+        chunks.append(
+            TextChunk(
+                index=index,
+                content=chunk_text_value,
+                metadata={
+                    "unit_start": start_idx,
+                    "unit_end": end_idx - 1,
+                    "token_count": token_count,
+                },
+            )
+        )
+        index += 1
+
+        if end_idx >= len(units):
+            break
+
+        start_idx = _start_with_overlap(
+            end_idx=end_idx,
+            overlap_tokens=overlap,
+            unit_token_counts=unit_token_counts,
+        )
+        if start_idx >= end_idx:
+            start_idx = end_idx - 1
 
     return chunks
+
+
+def _build_sentence_units(text: str) -> list[str]:
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", text) if p.strip()]
+    units: list[str] = []
+    for paragraph in paragraphs:
+        normalized = re.sub(r"\s+", " ", paragraph).strip()
+        if not normalized:
+            continue
+
+        # Split on sentence boundaries while preserving punctuation.
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", normalized) if s.strip()]
+        if not sentences:
+            continue
+        units.extend(sentences)
+    return units
+
+
+def _token_count(text: str) -> int:
+    # Approximate token count with word-ish splits; stable and dependency-free.
+    return max(1, len(re.findall(r"\S+", text)))
+
+
+def _max_end_for_chunk(
+    *,
+    start_idx: int,
+    token_budget: int,
+    unit_token_counts: list[int],
+) -> int:
+    tokens = 0
+    end_idx = start_idx
+    while end_idx < len(unit_token_counts):
+        next_tokens = unit_token_counts[end_idx]
+        if tokens > 0 and tokens + next_tokens > token_budget:
+            break
+        tokens += next_tokens
+        end_idx += 1
+    # Always include at least one unit.
+    return max(start_idx + 1, end_idx)
+
+
+def _start_with_overlap(
+    *,
+    end_idx: int,
+    overlap_tokens: int,
+    unit_token_counts: list[int],
+) -> int:
+    if overlap_tokens <= 0:
+        return end_idx
+    tokens = 0
+    start_idx = end_idx
+    while start_idx > 0 and tokens < overlap_tokens:
+        start_idx -= 1
+        tokens += unit_token_counts[start_idx]
+    return start_idx
