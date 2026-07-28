@@ -70,9 +70,31 @@ def _extract_pdf(file_path: Path) -> str:
 
 
 def _extract_docx(file_path: Path) -> str:
+    """Extract paragraphs and table cells in document order."""
+    from docx.document import Document as DocxDocumentType
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
     doc = DocxDocument(str(file_path))
-    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-    return "\n\n".join(paragraphs)
+    parts: list[str] = []
+
+    def walk(container: DocxDocumentType) -> None:
+        for child in container.element.body:
+            if child.tag == qn("w:p"):
+                paragraph = Paragraph(child, container)
+                text = paragraph.text.strip()
+                if text:
+                    parts.append(text)
+            elif child.tag == qn("w:tbl"):
+                table = Table(child, container)
+                for row in table.rows:
+                    cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if cells:
+                        parts.append(" | ".join(cells))
+
+    walk(doc)
+    return "\n\n".join(parts)
 
 
 def _extract_txt(file_path: Path) -> str:
