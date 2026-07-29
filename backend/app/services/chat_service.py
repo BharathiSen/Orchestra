@@ -58,9 +58,17 @@ class ChatService:
     ) -> Agent | None:
         if agent_id is None:
             return None
-        agent = self.db.get(Agent, agent_id)
-        if agent is None or agent.project_id != project_id:
+        from sqlalchemy.orm import selectinload
+
+        agent = (
+            self.db.query(Agent)
+            .options(selectinload(Agent.knowledge_bases))
+            .filter(Agent.id == agent_id, Agent.project_id == project_id)
+            .first()
+        )
+        if agent is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        _ = user  # project ownership already validated by caller
         return agent
 
     def create_conversation(self, *, user: User, payload: ConversationCreate) -> Conversation:

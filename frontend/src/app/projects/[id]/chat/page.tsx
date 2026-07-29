@@ -131,20 +131,60 @@ function GraphExecutionPanel({ steps }: { steps: GraphStepEvent[] }) {
 function RetrievedContextPanel({ chunks }: { chunks: RetrievedChunk[] }) {
   if (!chunks.length) return null;
   return (
-    <div className="mb-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-      <p className="mb-1 font-semibold text-slate-800">Retrieved Sources</p>
-      <div className="space-y-1">
+    <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-slate-700">
+      <p className="mb-1.5 font-semibold text-emerald-900">
+        Retrieved Sources ({chunks.length})
+      </p>
+      <div className="space-y-1.5">
         {chunks.map((chunk) => (
-          <div key={chunk.chunk_id} className="rounded-md bg-slate-50 px-2 py-1">
-            <p className="font-medium text-slate-700">
-              ✓ Chunk {chunk.chunk_id} · {chunk.document_name}
+          <div key={chunk.chunk_id} className="rounded-md border border-emerald-100 bg-white px-2 py-1.5">
+            <p className="font-medium text-slate-800">
+              ✓ Chunk {chunk.chunk_index} · {chunk.document_name}
+              {typeof chunk.score === "number" && (
+                <span className="ml-1.5 font-normal text-slate-500">
+                  ({chunk.score.toFixed(3)})
+                </span>
+              )}
             </p>
-            <p className="line-clamp-2 text-[11px] text-slate-600">{chunk.content}</p>
+            <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-600">
+              {chunk.content}
+            </p>
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+type ConversationExtras = {
+  retrievedChunks: RetrievedChunk[];
+  tools: ToolEvent[];
+  graphSteps: GraphStepEvent[];
+};
+
+function attachExtrasToMessages(
+  rows: ChatMessage[],
+  extras: ConversationExtras | undefined,
+): UiMessage[] {
+  const filtered = rows.filter((m) => m.role === "user" || m.role === "assistant");
+  const lastAssistantIdx = filtered.map((x) => x.role).lastIndexOf("assistant");
+  return filtered.map((m, idx) => {
+    const isLastAssistant = m.role === "assistant" && idx === lastAssistantIdx;
+    return {
+      id: String(m.id),
+      role: m.role as "user" | "assistant",
+      content: m.content,
+      retrievedChunks:
+        isLastAssistant && extras?.retrievedChunks?.length
+          ? extras.retrievedChunks
+          : undefined,
+      tools: isLastAssistant && extras?.tools?.length ? extras.tools : undefined,
+      graphSteps:
+        isLastAssistant && extras?.graphSteps?.length
+          ? extras.graphSteps
+          : undefined,
+    };
+  });
 }
 
 export default function ProjectChatPage() {
@@ -173,12 +213,32 @@ export default function ProjectChatPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  // Message history API does not persist RAG/tool/graph UI extras.
+  // Keep them in-session so the post-stream reload does not wipe the panel.
+  const conversationExtrasRef = useRef<Record<number, ConversationExtras>>({});
+  const pendingRetrievedRef = useRef<RetrievedChunk[]>([]);
 
   const selectedAgent = agents.find((a) => a.id === agentId);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  const saveConversationExtras = useCallback(
+    (conversationId: number, patch: Partial<ConversationExtras>) => {
+      const prev = conversationExtrasRef.current[conversationId] || {
+        retrievedChunks: [],
+        tools: [],
+        graphSteps: [],
+      };
+      conversationExtrasRef.current[conversationId] = {
+        retrievedChunks: patch.retrievedChunks ?? prev.retrievedChunks,
+        tools: patch.tools ?? prev.tools,
+        graphSteps: patch.graphSteps ?? prev.graphSteps,
+      };
+    },
+    [],
+  );
 
   const refreshConversations = useCallback(
     async (authToken: string) => {
@@ -193,13 +253,7 @@ export default function ProjectChatPage() {
     async (authToken: string, conversationId: number) => {
       const rows = await api.listMessages(authToken, conversationId);
       setMessages(
-        rows
-          .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m: ChatMessage) => ({
-            id: String(m.id),
-            role: m.role as "user" | "assistant",
-            content: m.content,
-          })),
+        attachExtrasToMessages(rows, conversationExtrasRef.current[conversationId]),
       );
     },
     [],
@@ -273,6 +327,7 @@ export default function ProjectChatPage() {
     setActiveConversationId(null);
     setMessages([]);
     setError(null);
+    pendingRetrievedRef.current = [];
   }
 
   async function onSelectConversation(id: number) {
@@ -333,6 +388,11 @@ export default function ProjectChatPage() {
           onMeta: ({ conversation_id }) => {
             streamConversationId = conversation_id;
             setActiveConversationId(conversation_id);
+            if (pendingRetrievedRef.current.length) {
+              saveConversationExtras(conversation_id, {
+                retrievedChunks: pendingRetrievedRef.current,
+              });
+            }
           },
           onToolStart: (tool) => {
             setMessages((prev) =>
@@ -352,6 +412,12 @@ export default function ProjectChatPage() {
             );
           },
           onRetrievedContext: ({ chunks }) => {
+            pendingRetrievedRef.current = chunks;
+            if (streamConversationId) {
+              saveConversationExtras(streamConversationId, {
+                retrievedChunks: chunks,
+              });
+            }
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
@@ -398,7 +464,7 @@ export default function ProjectChatPage() {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, content: m.content + tokenText }
+                  ? { ...m, content: m.content === "…" ? tokenText : m.content + tokenText }
                   : m,
               ),
             );
@@ -420,31 +486,27 @@ export default function ProjectChatPage() {
         null;
       if (currentId) {
         setActiveConversationId(currentId);
-        // Keep live tool cards for this turn; reload canonical messages after stream.
+        // Keep live tool/RAG/graph cards for this turn; reload canonical messages after stream.
         const rows = await api.listMessages(token, currentId);
+        let extras: ConversationExtras = {
+          retrievedChunks: pendingRetrievedRef.current,
+          tools: [],
+          graphSteps: [],
+        };
         setMessages((prev) => {
-          const liveTools =
-            prev.find((m) => m.id === assistantId)?.tools || [];
-          const liveRetrieved =
-            prev.find((m) => m.id === assistantId)?.retrievedChunks || [];
-          const liveGraphSteps =
-            prev.find((m) => m.id === assistantId)?.graphSteps || [];
-          return rows
-            .filter((m) => m.role === "user" || m.role === "assistant")
-            .map((m: ChatMessage, idx, arr) => {
-              const isLastAssistant =
-                m.role === "assistant" &&
-                idx === arr.map((x) => x.role).lastIndexOf("assistant");
-              return {
-                id: String(m.id),
-                role: m.role as "user" | "assistant",
-                content: m.content,
-                retrievedChunks: isLastAssistant ? liveRetrieved : undefined,
-                tools: isLastAssistant ? liveTools : undefined,
-                graphSteps: isLastAssistant ? liveGraphSteps : undefined,
-              };
-            });
+          const live = prev.find((m) => m.id === assistantId);
+          extras = {
+            retrievedChunks:
+              live?.retrievedChunks?.length
+                ? live.retrievedChunks
+                : pendingRetrievedRef.current,
+            tools: live?.tools || [],
+            graphSteps: live?.graphSteps || [],
+          };
+          return attachExtrasToMessages(rows, extras);
         });
+        saveConversationExtras(currentId, extras);
+        pendingRetrievedRef.current = [];
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Chat failed");
