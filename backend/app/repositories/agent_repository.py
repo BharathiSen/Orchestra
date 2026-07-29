@@ -1,5 +1,5 @@
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import Agent, Project
 
@@ -14,12 +14,13 @@ class AgentRepository:
         self.db.add(agent)
         self.db.commit()
         self.db.refresh(agent)
-        return agent
+        # Reload with relationships so API can return knowledge_base_ids.
+        return self.get_agent(agent.id) or agent
 
     def get_agent(self, agent_id: int) -> Agent | None:
         return (
             self.db.query(Agent)
-            .options(joinedload(Agent.project), joinedload(Agent.knowledge_bases))
+            .options(joinedload(Agent.project), selectinload(Agent.knowledge_bases))
             .filter(Agent.id == agent_id)
             .first()
         )
@@ -27,7 +28,7 @@ class AgentRepository:
     def list_agents(self, *, owner_id: int, project_id: int | None = None) -> list[Agent]:
         stmt = (
             select(Agent)
-            .options(joinedload(Agent.knowledge_bases))
+            .options(selectinload(Agent.knowledge_bases))
             .join(Project, Agent.project_id == Project.id)
             .where(Project.owner_id == owner_id)
             .order_by(Agent.created_at.desc())
@@ -42,7 +43,7 @@ class AgentRepository:
         self.db.add(agent)
         self.db.commit()
         self.db.refresh(agent)
-        return agent
+        return self.get_agent(agent.id) or agent
 
     def delete_agent(self, agent: Agent) -> None:
         self.db.delete(agent)
