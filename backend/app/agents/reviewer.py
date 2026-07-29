@@ -1,0 +1,90 @@
+"""Reviewer agent — quality-checks the draft and produces the final response."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from app.agents.base import llm_text
+from app.orchestrator.state import OrchestraState
+
+
+class ReviewerAgent:
+    name = "reviewer"
+
+    def __init__(self, llm: Any) -> None:
+        self.llm = llm
+
+    def __call__(self, state: OrchestraState) -> OrchestraState:
+        question = state.get("question") or ""
+        draft = state.get("draft") or ""
+        research = state.get("research_notes") or ""
+
+        system = (
+            "You are the Reviewer agent in Orchestra. "
+            "Check the draft for clarity, grounding against research notes, and completeness. "
+            "Return TWO sections:\n"
+            "NOTES: 2-4 short bullet points of review notes\n"
+            "FINAL: the improved final answer for the user (rewrite if needed, keep accurate)."
+        )
+        user = (
+            f"Question:\n{question}\n\n"
+            f"Research notes:\n{research}\n\n"
+            f"Draft:\n{draft}"
+        )
+        try:
+            raw = llm_text(
+                self.llm,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                model=state["model"],
+                temperature=0.1,
+            )
+            notes, final = self._split(raw, draft)
+            return {
+                "current_agent": self.name,
+                "review_notes": notes,
+                "final_response": final,
+                "execution_history": [
+                    {
+                        "agent": self.name,
+                        "status": "done",
+                        "summary": "Reviewed draft and produced final answer.",
+                    }
+                ],
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "current_agent": self.name,
+                "review_notes": f"Reviewer skipped due to error: {exc}",
+                "final_response": draft or "No answer available.",
+                "errors": [f"reviewer: {exc}"],
+                "execution_history": [
+                    {
+                        "agent": self.name,
+                        "status": "error",
+                        "summary": f"Reviewer error; returning draft. ({exc})",
+                    }
+                ],
+            }
+
+    def _split(self, raw: str, draft: str) -> tuple[str, str]:
+        text = (raw or "").strip()
+        if not text:
+            return "No review notes.", draft
+
+        upper = text.upper()
+        if "FINAL:" in upper:
+            idx = upper.index("FINAL:")
+            notes_part = text[:idx]
+            final_part = text[idx + len("FINAL:") :].strip()
+            notes = notes_part
+            if notes.upper().startswith("NOTES:"):
+                notes = notes[len("NOTES:") :].strip()
+            notes = notes.strip() or "Looks good."
+            final = final_part or draft
+            return notes, final
+
+        # If model ignored format, treat whole output as improved answer
+        return "Model returned a single block; treated as final answer.", text

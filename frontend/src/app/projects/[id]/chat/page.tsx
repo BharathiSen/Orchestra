@@ -14,10 +14,14 @@ import {
   type Conversation,
   type GraphNodeName,
   type GraphStepEvent,
+  type MemoryStatus,
+  type OrchestraAgentName,
+  type OrchestraStepEvent,
   type Project,
   type RetrievedChunk,
   type ToolEvent,
   type ToolInfo,
+  type UserMemoryItem,
 } from "@/lib/api";
 import { clearSession, getToken } from "@/lib/auth";
 
@@ -28,6 +32,7 @@ type UiMessage = {
   retrievedChunks?: RetrievedChunk[];
   tools?: ToolEvent[];
   graphSteps?: GraphStepEvent[];
+  orchestraSteps?: OrchestraStepEvent[];
 };
 
 function toolLabel(name: string): string {
@@ -128,6 +133,151 @@ function GraphExecutionPanel({ steps }: { steps: GraphStepEvent[] }) {
   );
 }
 
+function OrchestraExecutionPanel({ steps }: { steps: OrchestraStepEvent[] }) {
+  if (!steps.length) return null;
+  const labels: Record<OrchestraAgentName, string> = {
+    planner: "Planner",
+    research: "Research",
+    writer: "Writer",
+    reviewer: "Reviewer",
+  };
+  const ordered: OrchestraAgentName[] = [
+    "planner",
+    "research",
+    "writer",
+    "reviewer",
+  ];
+  const latest = new Map<OrchestraAgentName, OrchestraStepEvent>();
+  for (const step of steps) {
+    latest.set(step.agent, step);
+  }
+
+  return (
+    <div className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-2 text-xs text-slate-700">
+      <p className="mb-1.5 font-semibold text-indigo-950">Agent Execution</p>
+      <div className="space-y-1.5">
+        {ordered.map((agent, idx) => {
+          const step = latest.get(agent);
+          const status = step?.status;
+          const statusText =
+            status === "running"
+              ? "Running…"
+              : status === "done"
+                ? "✓"
+                : status === "error"
+                  ? "Error"
+                  : "Pending";
+          const statusClass =
+            status === "running"
+              ? "text-amber-700"
+              : status === "done"
+                ? "text-teal-700"
+                : status === "error"
+                  ? "text-red-700"
+                  : "text-slate-400";
+          return (
+            <div key={agent}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{labels[agent]}</span>
+                <span className={statusClass}>{statusText}</span>
+              </div>
+              {step?.summary && (
+                <p className="mt-0.5 text-[11px] text-slate-500">{step.summary}</p>
+              )}
+              {idx < ordered.length - 1 && (
+                <p className="text-[10px] text-slate-400">↓</p>
+              )}
+            </div>
+          );
+        })}
+        {latest.get("reviewer")?.status === "done" && (
+          <p className="pt-1 font-semibold text-teal-800">↓ Done</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MemoryPanel({
+  status,
+  preferences,
+  onSavePreference,
+  prefDraft,
+  setPrefDraft,
+  savingPref,
+}: {
+  status: MemoryStatus | null;
+  preferences: UserMemoryItem[];
+  onSavePreference: () => void;
+  prefDraft: { key: string; value: string };
+  setPrefDraft: (v: { key: string; value: string }) => void;
+  savingPref: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-700">
+      <p className="mb-2 font-semibold text-slate-800">Memory Panel</p>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+        <span className="text-slate-500">Conversation</span>
+        <span className="font-medium">
+          Memory Size {status?.memory_size ?? 0} / {status?.buffer_limit ?? 10}
+        </span>
+        <span className="text-slate-500">Session</span>
+        <span className="font-medium">
+          {status?.session_active ? "Active" : "Idle"}
+        </span>
+        <span className="text-slate-500">Redis</span>
+        <span
+          className={
+            status?.redis_connected
+              ? "font-medium text-teal-700"
+              : "font-medium text-amber-700"
+          }
+        >
+          {status?.redis_connected ? "Connected" : "Offline"}
+        </span>
+        <span className="text-slate-500">Memory Used</span>
+        <span className="font-medium">{status?.memory_used ? "✓ Yes" : "No"}</span>
+        <span className="text-slate-500">Long-term</span>
+        <span className="font-medium">{status?.long_term_count ?? 0} facts</span>
+      </div>
+
+      {preferences.length > 0 && (
+        <ul className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+          {preferences.slice(0, 5).map((p) => (
+            <li key={p.id} className="truncate text-[11px] text-slate-600">
+              <span className="font-medium text-slate-700">{p.key}</span>: {p.value}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-2 space-y-1.5 border-t border-slate-100 pt-2">
+        <p className="font-medium text-slate-700">Add preference</p>
+        <input
+          value={prefDraft.key}
+          onChange={(e) => setPrefDraft({ ...prefDraft, key: e.target.value })}
+          placeholder="e.g. preferred_language"
+          className="w-full rounded-md border border-slate-300 px-2 py-1 text-[11px]"
+        />
+        <input
+          value={prefDraft.value}
+          onChange={(e) => setPrefDraft({ ...prefDraft, value: e.target.value })}
+          placeholder="e.g. Python"
+          className="w-full rounded-md border border-slate-300 px-2 py-1 text-[11px]"
+        />
+        <button
+          type="button"
+          disabled={savingPref || !prefDraft.key.trim() || !prefDraft.value.trim()}
+          onClick={onSavePreference}
+          className="rounded-md bg-ink px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50"
+        >
+          {savingPref ? "Saving…" : "Save to long-term memory"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RetrievedContextPanel({ chunks }: { chunks: RetrievedChunk[] }) {
   if (!chunks.length) return null;
   return (
@@ -160,6 +310,7 @@ type ConversationExtras = {
   retrievedChunks: RetrievedChunk[];
   tools: ToolEvent[];
   graphSteps: GraphStepEvent[];
+  orchestraSteps: OrchestraStepEvent[];
 };
 
 function attachExtrasToMessages(
@@ -182,6 +333,10 @@ function attachExtrasToMessages(
       graphSteps:
         isLastAssistant && extras?.graphSteps?.length
           ? extras.graphSteps
+          : undefined,
+      orchestraSteps:
+        isLastAssistant && extras?.orchestraSteps?.length
+          ? extras.orchestraSteps
           : undefined,
     };
   });
@@ -207,7 +362,12 @@ export default function ProjectChatPage() {
   const [model, setModel] = useState("llama-3.1-8b-instant");
   const [agentId, setAgentId] = useState<number | "">("");
   const [temperature, setTemperature] = useState(0.2);
-  const [enableTools, setEnableTools] = useState(true);
+  const [enableTools, setEnableTools] = useState(false);
+  const [enableOrchestra, setEnableOrchestra] = useState(true);
+  const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null);
+  const [preferences, setPreferences] = useState<UserMemoryItem[]>([]);
+  const [prefDraft, setPrefDraft] = useState({ key: "", value: "" });
+  const [savingPref, setSavingPref] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -230,12 +390,30 @@ export default function ProjectChatPage() {
         retrievedChunks: [],
         tools: [],
         graphSteps: [],
+        orchestraSteps: [],
       };
       conversationExtrasRef.current[conversationId] = {
         retrievedChunks: patch.retrievedChunks ?? prev.retrievedChunks,
         tools: patch.tools ?? prev.tools,
         graphSteps: patch.graphSteps ?? prev.graphSteps,
+        orchestraSteps: patch.orchestraSteps ?? prev.orchestraSteps,
       };
+    },
+    [],
+  );
+
+  const refreshMemory = useCallback(
+    async (authToken: string, conversationId?: number | null) => {
+      try {
+        const [status, prefs] = await Promise.all([
+          api.getMemoryStatus(authToken, conversationId),
+          api.listPreferences(authToken),
+        ]);
+        setMemoryStatus(status);
+        setPreferences(prefs.items || []);
+      } catch {
+        // Memory panel is best-effort
+      }
     },
     [],
   );
@@ -312,17 +490,44 @@ export default function ProjectChatPage() {
     if (sending) return;
     if (!token || !activeConversationId) {
       setMessages([]);
+      if (token) {
+        refreshMemory(token, null).catch(() => undefined);
+      }
       return;
     }
     loadConversationMessages(token, activeConversationId).catch((err) => {
       setError(err instanceof ApiError ? err.message : "Failed to load messages");
     });
-  }, [token, activeConversationId, loadConversationMessages, sending]);
+    refreshMemory(token, activeConversationId).catch(() => undefined);
+  }, [
+    token,
+    activeConversationId,
+    loadConversationMessages,
+    refreshMemory,
+    sending,
+  ]);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages, sending]);
 
+  async function onSavePreference() {
+    if (!token || !prefDraft.key.trim() || !prefDraft.value.trim()) return;
+    setSavingPref(true);
+    try {
+      await api.upsertPreference(token, {
+        category: "preference",
+        key: prefDraft.key.trim(),
+        value: prefDraft.value.trim(),
+      });
+      setPrefDraft({ key: "", value: "" });
+      await refreshMemory(token, activeConversationId);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to save preference");
+    } finally {
+      setSavingPref(false);
+    }
+  }
   async function onNewChat() {
     setActiveConversationId(null);
     setMessages([]);
@@ -382,7 +587,8 @@ export default function ProjectChatPage() {
           model,
           temperature,
           system_prompt: selectedAgent?.system_prompt || undefined,
-          enable_tools: enableTools,
+          enable_tools: enableOrchestra ? false : enableTools,
+          enable_orchestra: enableOrchestra,
         },
         {
           onMeta: ({ conversation_id }) => {
@@ -393,6 +599,9 @@ export default function ProjectChatPage() {
                 retrievedChunks: pendingRetrievedRef.current,
               });
             }
+          },
+          onMemoryStatus: (status) => {
+            setMemoryStatus(status);
           },
           onToolStart: (tool) => {
             setMessages((prev) =>
@@ -451,7 +660,34 @@ export default function ProjectChatPage() {
                       ...m,
                       graphSteps: [
                         ...(m.graphSteps || []).filter(
-                          (s) => !(s.node === step.node && s.status === step.status && s.summary === step.summary),
+                          (s) =>
+                            !(
+                              s.node === step.node &&
+                              s.status === step.status &&
+                              s.summary === step.summary
+                            ),
+                        ),
+                        step,
+                      ],
+                    }
+                  : m,
+              ),
+            );
+          },
+          onOrchestraStep: (step) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      orchestraSteps: [
+                        ...(m.orchestraSteps || []).filter(
+                          (s) =>
+                            !(
+                              s.agent === step.agent &&
+                              s.status === step.status &&
+                              s.summary === step.summary
+                            ),
                         ),
                         step,
                       ],
@@ -464,7 +700,11 @@ export default function ProjectChatPage() {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, content: m.content === "…" ? tokenText : m.content + tokenText }
+                  ? {
+                      ...m,
+                      content:
+                        m.content === "…" ? tokenText : m.content + tokenText,
+                    }
                   : m,
               ),
             );
@@ -474,6 +714,9 @@ export default function ProjectChatPage() {
           },
           onDone: async () => {
             await refreshConversations(token);
+            if (streamConversationId) {
+              await refreshMemory(token, streamConversationId);
+            }
           },
         },
       );
@@ -492,6 +735,7 @@ export default function ProjectChatPage() {
           retrievedChunks: pendingRetrievedRef.current,
           tools: [],
           graphSteps: [],
+          orchestraSteps: [],
         };
         setMessages((prev) => {
           const live = prev.find((m) => m.id === assistantId);
@@ -502,11 +746,13 @@ export default function ProjectChatPage() {
                 : pendingRetrievedRef.current,
             tools: live?.tools || [],
             graphSteps: live?.graphSteps || [],
+            orchestraSteps: live?.orchestraSteps || [],
           };
           return attachExtrasToMessages(rows, extras);
         });
         saveConversationExtras(currentId, extras);
         pendingRetrievedRef.current = [];
+        await refreshMemory(token, currentId);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Chat failed");
@@ -554,7 +800,8 @@ export default function ProjectChatPage() {
             Chat · {project.name}
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Streaming chat with optional tools: calculator, weather, and search.
+            Multi-agent Orchestra with Redis conversation memory and long-term
+            preferences.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -621,7 +868,7 @@ export default function ProjectChatPage() {
               New
             </button>
           </div>
-          <ul className="max-h-[calc(100vh-240px)] space-y-1 overflow-y-auto">
+          <ul className="mb-3 max-h-[40vh] space-y-1 overflow-y-auto">
             {conversations.length === 0 && (
               <li className="px-2 py-3 text-xs text-slate-500">No chats yet.</li>
             )}
@@ -653,6 +900,15 @@ export default function ProjectChatPage() {
               </li>
             ))}
           </ul>
+
+          <MemoryPanel
+            status={memoryStatus}
+            preferences={preferences}
+            onSavePreference={onSavePreference}
+            prefDraft={prefDraft}
+            setPrefDraft={setPrefDraft}
+            savingPref={savingPref}
+          />
         </aside>
 
         <section className="min-h-0 flex flex-col rounded-2xl border border-slate-200 bg-white/80">
@@ -700,10 +956,30 @@ export default function ProjectChatPage() {
                 className="mt-2 block w-40"
               />
             </label>
-            <label className="inline-flex items-center gap-2 rounded-lg border-2 border-teal-500 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-900">
+            <label className="inline-flex items-center gap-2 rounded-lg border-2 border-indigo-500 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-950">
+              <input
+                type="checkbox"
+                checked={enableOrchestra}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setEnableOrchestra(on);
+                  if (on) setEnableTools(false);
+                }}
+                className="h-4 w-4"
+              />
+              Orchestra {enableOrchestra ? "(ON)" : "(OFF)"}
+            </label>
+            <label
+              className={`inline-flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm font-semibold ${
+                enableOrchestra
+                  ? "border-slate-200 bg-slate-50 text-slate-400"
+                  : "border-teal-500 bg-teal-50 text-teal-900"
+              }`}
+            >
               <input
                 type="checkbox"
                 checked={enableTools}
+                disabled={enableOrchestra}
                 onChange={(e) => setEnableTools(e.target.checked)}
                 className="h-4 w-4"
               />
@@ -714,8 +990,8 @@ export default function ProjectChatPage() {
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
             {messages.length === 0 && (
               <p className="text-center text-sm text-slate-500">
-                Try: &quot;What is 24 * 18?&quot; or &quot;Weather in Chennai&quot; or
-                &quot;Search for JWT&quot;
+                With Orchestra ON try: &quot;Explain ACDOF layers&quot; or
+                &quot;My name is Bharathi — remember that&quot; then ask again.
               </p>
             )}
             {messages.map((m) => (
@@ -730,6 +1006,11 @@ export default function ProjectChatPage() {
                 <p className="mb-1 text-[10px] font-semibold tracking-wide uppercase opacity-70">
                   {m.role}
                 </p>
+                {m.role === "assistant" &&
+                  m.orchestraSteps &&
+                  m.orchestraSteps.length > 0 && (
+                    <OrchestraExecutionPanel steps={m.orchestraSteps} />
+                  )}
                 {m.role === "assistant" && m.retrievedChunks && m.retrievedChunks.length > 0 && (
                   <RetrievedContextPanel chunks={m.retrievedChunks} />
                 )}

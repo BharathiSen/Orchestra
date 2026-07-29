@@ -7,6 +7,7 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.message import Message
 from app.models.project import Project
 from app.models.user import User
+from app.memory.models import UserMemory
 
 __all__ = [
     "User",
@@ -18,4 +19,5 @@ __all__ = [
     "KnowledgeBase",
     "Document",
     "DocumentChunk",
+    "UserMemory",
 ]

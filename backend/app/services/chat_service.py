@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.graph import build_agent_graph
+from app.memory.service import MemoryService
 from app.models import Agent, Conversation, Message, Project, User
+from app.orchestrator import OrchestraEngine
 from app.rag.service import RagService
 from app.repositories.chat_repository import ConversationRepository, MessageRepository
 from app.schemas import ChatRequest, ConversationCreate, ConversationUpdate
@@ -37,6 +39,7 @@ class ChatService:
         self.messages = MessageRepository(db)
         self.tools = ensure_default_tools()
         self.rag = RagService(db)
+        self.memory = MemoryService(db)
 
     def _owned_project(self, *, project_id: int, user: User) -> Project:
         project = self.db.get(Project, project_id)
@@ -112,6 +115,10 @@ class ChatService:
 
     def delete_conversation(self, *, user: User, conversation_id: int) -> None:
         conversation = self._owned_conversation(conversation_id=conversation_id, user=user)
+        try:
+            self.memory.store.clear_conversation(conversation_id)
+        except Exception:  # noqa: BLE001
+            pass
         self.conversations.delete(conversation)
 
     def list_messages(self, *, user: User, conversation_id: int) -> list[Message]:
@@ -124,6 +131,7 @@ class ChatService:
         payload: ChatRequest,
         agent: Agent | None,
         enable_tools: bool,
+        long_term_block: str = "",
     ) -> str:
         if payload.system_prompt and payload.system_prompt.strip():
             base = payload.system_prompt.strip()
@@ -131,6 +139,8 @@ class ChatService:
             base = agent.system_prompt.strip()
         else:
             base = settings.default_system_prompt
+        if long_term_block:
+            base = f"{base}\n\n{long_term_block}"
         if enable_tools:
             return base + TOOL_SYSTEM_ADDENDUM
         return base
@@ -187,6 +197,39 @@ class ChatService:
         )
 
         history = self.messages.list_for_conversation(conversation.id)
+        postgres_fallback = [
+            {
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            }
+            for msg in history
+            if msg.role in {"user", "assistant"} and msg.content.strip()
+        ]
+
+        # Day 8 — load Redis conversation buffer (+ long-term prefs)
+        memory_ctx = self.memory.build_context(
+            user_id=user.id,
+            conversation_id=conversation.id,
+            postgres_fallback=postgres_fallback,
+        )
+        mem_status = self.memory.get_status(
+            user_id=user.id,
+            conversation_id=conversation.id,
+        )
+        yield _sse(
+            {
+                "type": "memory_status",
+                "redis_connected": mem_status.redis_connected,
+                "session_active": True,
+                "conversation_id": conversation.id,
+                "memory_size": memory_ctx.memory_size,
+                "buffer_limit": memory_ctx.buffer_limit,
+                "memory_used": memory_ctx.memory_size > 0,
+                "long_term_count": mem_status.long_term_count,
+            }
+        )
+
         # Persist user/assistant only (ADR-011). Tool activity is live SSE for the UI.
         user_message = self.messages.create(
             Message(
@@ -204,52 +247,114 @@ class ChatService:
             }
         )
 
-        enable_tools = bool(payload.enable_tools)
+        enable_orchestra = bool(payload.enable_orchestra)
+        # Orchestra owns the multi-agent path; tools graph is separate.
+        enable_tools = bool(payload.enable_tools) and not enable_orchestra
+        long_term_block = self.memory.format_long_term_prompt(memory_ctx.long_term)
         base_system_prompt = self._resolve_system_prompt(
             payload=payload,
             agent=agent,
             enable_tools=enable_tools,
+            long_term_block=long_term_block,
         )
 
-        retrieved_chunks: list[dict[str, Any]] = []
-        if agent and getattr(agent, "knowledge_bases", None):
-            kb_ids = [kb.id for kb in agent.knowledge_bases]
-            chunks = self.rag.retrieve_chunks_for_question(
-                question=payload.message,
-                knowledge_base_ids=kb_ids,
-                top_k=5,
-            )
-            if chunks:
-                retrieved_chunks = self.rag.serialize_chunks(chunks)
-                base_system_prompt = self.rag.build_grounded_prompt(
-                    base_system_prompt=base_system_prompt,
-                    retrieved_chunks=chunks,
-                )
-                yield _sse(
-                    {
-                        "type": "retrieved_context",
-                        "count": len(retrieved_chunks),
-                        "chunks": retrieved_chunks,
-                    }
-                )
-
-        llm_messages: list[dict[str, Any]] = [
-            {
-                "role": "system",
-                "content": base_system_prompt,
-            }
+        # Build LLM history from Redis buffer (last N), not full Postgres dump
+        buffer_messages = [
+            {"role": m.role, "content": m.content}
+            for m in memory_ctx.short_term
+            if m.role in {"user", "assistant"} and m.content.strip()
         ]
-        for msg in history:
-            if msg.role in {"user", "assistant"} and msg.content.strip():
-                llm_messages.append({"role": msg.role, "content": msg.content})
-        llm_messages.append({"role": "user", "content": payload.message})
 
         llm = get_llm_service()
-        openai_tools = self.tools.openai_tools() if enable_tools else None
         assistant_chunks: list[str] = []
 
         try:
-            if enable_tools and openai_tools:
+            if enable_orchestra:
+                kb_ids: list[int] = []
+                if agent and getattr(agent, "knowledge_bases", None):
+                    kb_ids = [kb.id for kb in agent.knowledge_bases]
+
+                engine = OrchestraEngine(llm=llm, rag=self.rag)
+                initial_state = {
+                    "question": payload.message,
+                    "system_prompt": base_system_prompt,
+                    "model": payload.model,
+                    "temperature": payload.temperature,
+                    "knowledge_base_ids": kb_ids,
+                    "messages": buffer_messages + [{"role": "user", "content": payload.message}],
+                    "memory": {
+                        "short_term_size": memory_ctx.memory_size,
+                        "long_term": memory_ctx.long_term,
+                        "redis_connected": memory_ctx.redis_connected,
+                    },
+                    "retrieved_docs": [],
+                    "current_agent": "",
+                    "errors": [],
+                    "execution_history": [],
+                    "plan": "",
+                    "research_notes": "",
+                    "draft": "",
+                    "review_notes": "",
+                    "final_response": "",
+                }
+
+                final_answer = ""
+                for event in engine.run(initial_state):
+                    evt_type = event.get("type")
+                    if evt_type == "orchestra_step":
+                        yield _sse(event)
+                    elif evt_type == "retrieved_context":
+                        yield _sse(event)
+                    elif evt_type == "orchestra_result":
+                        final_answer = str(event.get("final_response") or "")
+                        if event.get("review_notes"):
+                            yield _sse(
+                                {
+                                    "type": "orchestra_step",
+                                    "agent": "reviewer",
+                                    "status": "done",
+                                    "summary": "Review notes ready.",
+                                    "review_notes": event.get("review_notes"),
+                                }
+                            )
+
+                if not final_answer:
+                    final_answer = "(No content returned by Orchestra.)"
+                for token in _chunk_text(final_answer):
+                    assistant_chunks.append(token)
+                    yield _sse({"type": "token", "content": token})
+
+            elif enable_tools:
+                # Day 7-style RAG injection still applies on the tools path
+                llm_messages = self._build_llm_messages(
+                    base_system_prompt=base_system_prompt,
+                    buffer_messages=buffer_messages,
+                    user_message=payload.message,
+                )
+                retrieved_chunks: list[dict[str, Any]] = []
+                if agent and getattr(agent, "knowledge_bases", None):
+                    kb_ids = [kb.id for kb in agent.knowledge_bases]
+                    chunks = self.rag.retrieve_chunks_for_question(
+                        question=payload.message,
+                        knowledge_base_ids=kb_ids,
+                        top_k=5,
+                    )
+                    if chunks:
+                        retrieved_chunks = self.rag.serialize_chunks(chunks)
+                        grounded = self.rag.build_grounded_prompt(
+                            base_system_prompt=base_system_prompt,
+                            retrieved_chunks=chunks,
+                        )
+                        llm_messages[0]["content"] = grounded
+                        yield _sse(
+                            {
+                                "type": "retrieved_context",
+                                "count": len(retrieved_chunks),
+                                "chunks": retrieved_chunks,
+                            }
+                        )
+
+                openai_tools = self.tools.openai_tools()
                 final_answer = ""
                 node_order = ["planner", "tool", "reviewer", "answer"]
                 current_node_idx = 0
@@ -319,6 +424,34 @@ class ChatService:
                     assistant_chunks.append(token)
                     yield _sse({"type": "token", "content": token})
             else:
+                # Direct stream path with Redis memory buffer + optional RAG
+                llm_messages = self._build_llm_messages(
+                    base_system_prompt=base_system_prompt,
+                    buffer_messages=buffer_messages,
+                    user_message=payload.message,
+                )
+                if agent and getattr(agent, "knowledge_bases", None):
+                    kb_ids = [kb.id for kb in agent.knowledge_bases]
+                    chunks = self.rag.retrieve_chunks_for_question(
+                        question=payload.message,
+                        knowledge_base_ids=kb_ids,
+                        top_k=5,
+                    )
+                    if chunks:
+                        retrieved_chunks = self.rag.serialize_chunks(chunks)
+                        grounded = self.rag.build_grounded_prompt(
+                            base_system_prompt=base_system_prompt,
+                            retrieved_chunks=chunks,
+                        )
+                        llm_messages[0]["content"] = grounded
+                        yield _sse(
+                            {
+                                "type": "retrieved_context",
+                                "count": len(retrieved_chunks),
+                                "chunks": retrieved_chunks,
+                            }
+                        )
+
                 for token in llm.stream_chat_completion(
                     messages=llm_messages,
                     model=payload.model,
@@ -348,6 +481,31 @@ class ChatService:
         conversation.updated_at = datetime.now(UTC)
         self.db.add(conversation)
         self.db.commit()
+
+        # Day 8 — persist turn into Redis short-term memory
+        self.memory.remember_turn(
+            conversation_id=conversation.id,
+            user_id=user.id,
+            user_content=payload.message,
+            assistant_content=full_reply,
+        )
+        updated_status = self.memory.get_status(
+            user_id=user.id,
+            conversation_id=conversation.id,
+        )
+        yield _sse(
+            {
+                "type": "memory_status",
+                "redis_connected": updated_status.redis_connected,
+                "session_active": updated_status.session_active,
+                "conversation_id": conversation.id,
+                "memory_size": updated_status.memory_size,
+                "buffer_limit": updated_status.buffer_limit,
+                "memory_used": updated_status.memory_used,
+                "long_term_count": updated_status.long_term_count,
+            }
+        )
+
         yield _sse(
             {
                 "type": "done",
@@ -355,6 +513,25 @@ class ChatService:
                 "conversation_id": conversation.id,
             }
         )
+
+    def _build_llm_messages(
+        self,
+        *,
+        base_system_prompt: str,
+        buffer_messages: list[dict[str, Any]],
+        user_message: str,
+    ) -> list[dict[str, Any]]:
+        llm_messages: list[dict[str, Any]] = [
+            {"role": "system", "content": base_system_prompt},
+        ]
+        for msg in buffer_messages:
+            if msg.get("role") in {"user", "assistant"} and str(msg.get("content") or "").strip():
+                llm_messages.append(
+                    {"role": msg["role"], "content": str(msg["content"])}
+                )
+        llm_messages.append({"role": "user", "content": user_message})
+        return llm_messages
+
 
 def _extract_graph_summary(payload: dict[str, Any], node_name: str) -> str | None:
     events = payload.get("graph_events") or []

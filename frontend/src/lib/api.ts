@@ -173,6 +173,34 @@ export type GraphStepEvent = {
   summary?: string;
 };
 
+export type OrchestraAgentName = "planner" | "research" | "writer" | "reviewer";
+
+export type OrchestraStepEvent = {
+  agent: OrchestraAgentName;
+  status: "running" | "done" | "error";
+  summary?: string;
+  review_notes?: string;
+};
+
+export type MemoryStatus = {
+  redis_connected: boolean;
+  session_active: boolean;
+  conversation_id: number | null;
+  memory_size: number;
+  buffer_limit: number;
+  memory_used: boolean;
+  long_term_count: number;
+};
+
+export type UserMemoryItem = {
+  id: number;
+  category: string;
+  key: string;
+  value: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ChatStreamHandlers = {
   onMeta?: (data: { conversation_id: number; title: string }) => void;
   onUserMessage?: (data: ChatMessage) => void;
@@ -181,6 +209,8 @@ export type ChatStreamHandlers = {
   onToolStart?: (data: ToolEvent) => void;
   onToolResult?: (data: ToolEvent) => void;
   onGraphStep?: (data: GraphStepEvent) => void;
+  onOrchestraStep?: (data: OrchestraStepEvent) => void;
+  onMemoryStatus?: (data: MemoryStatus) => void;
   onDone?: (data: { message_id: number; conversation_id: number }) => void;
   onError?: (detail: string) => void;
 };
@@ -196,6 +226,7 @@ export async function streamChat(
     temperature?: number;
     system_prompt?: string;
     enable_tools?: boolean;
+    enable_orchestra?: boolean;
   },
   handlers: ChatStreamHandlers,
 ): Promise<void> {
@@ -256,12 +287,20 @@ export async function streamChat(
           tool_call_id?: string;
           tool_name?: string;
           arguments?: string;
-          status?: "running" | "complete" | "error";
+          status?: "running" | "complete" | "error" | "done";
           result?: string;
           node?: GraphNodeName;
+          agent?: OrchestraAgentName;
           summary?: string;
+          review_notes?: string;
           count?: number;
           chunks?: RetrievedChunk[];
+          redis_connected?: boolean;
+          session_active?: boolean;
+          memory_size?: number;
+          buffer_limit?: number;
+          memory_used?: boolean;
+          long_term_count?: number;
         };
 
         if (event.type === "meta" && event.conversation_id != null) {
@@ -273,6 +312,16 @@ export async function streamChat(
           handlers.onRetrievedContext?.({
             count: event.count || 0,
             chunks: event.chunks || [],
+          });
+        } else if (event.type === "memory_status") {
+          handlers.onMemoryStatus?.({
+            redis_connected: Boolean(event.redis_connected),
+            session_active: Boolean(event.session_active),
+            conversation_id: event.conversation_id ?? null,
+            memory_size: event.memory_size || 0,
+            buffer_limit: event.buffer_limit || 10,
+            memory_used: Boolean(event.memory_used),
+            long_term_count: event.long_term_count || 0,
           });
         } else if (event.type === "user_message" && event.id != null) {
           handlers.onUserMessage?.({
@@ -293,7 +342,7 @@ export async function streamChat(
           handlers.onToolResult?.({
             tool_call_id: event.tool_call_id || event.tool_name,
             tool_name: event.tool_name,
-            status: event.status || "complete",
+            status: event.status === "error" ? "error" : "complete",
             result: event.result,
           });
         } else if (
@@ -307,6 +356,19 @@ export async function streamChat(
             node: event.node,
             status: event.status,
             summary: event.summary,
+          });
+        } else if (
+          event.type === "orchestra_step" &&
+          event.agent &&
+          (event.status === "running" ||
+            event.status === "done" ||
+            event.status === "error")
+        ) {
+          handlers.onOrchestraStep?.({
+            agent: event.agent,
+            status: event.status,
+            summary: event.summary,
+            review_notes: event.review_notes,
           });
         } else if (event.type === "token" && event.content) {
           handlers.onToken?.(event.content);
@@ -500,4 +562,31 @@ export const api = {
     request<ChunkRecord[]>(`/api/v1/documents/${docId}/chunks`, {}, token),
   deleteDocument: (token: string, docId: number) =>
     request<void>(`/api/v1/documents/${docId}`, { method: "DELETE" }, token),
+
+  getMemoryStatus: (token: string, conversationId?: number | null) => {
+    const q =
+      conversationId != null ? `?conversation_id=${conversationId}` : "";
+    return request<MemoryStatus>(`/api/v1/memory/status${q}`, {}, token);
+  },
+  listPreferences: (token: string) =>
+    request<{ items: UserMemoryItem[]; count: number }>(
+      "/api/v1/memory/preferences",
+      {},
+      token,
+    ),
+  upsertPreference: (
+    token: string,
+    body: { category: string; key: string; value: string },
+  ) =>
+    request<UserMemoryItem>(
+      "/api/v1/memory/preferences",
+      { method: "PUT", body: JSON.stringify(body) },
+      token,
+    ),
+  deletePreference: (token: string, memoryId: number) =>
+    request<void>(
+      `/api/v1/memory/preferences/${memoryId}`,
+      { method: "DELETE" },
+      token,
+    ),
 };

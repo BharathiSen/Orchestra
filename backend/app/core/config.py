@@ -39,6 +39,9 @@ class Settings(BaseSettings):
 
     upload_dir: str = "uploads"
 
+    # Day 8 — conversation buffer size (short-term Redis memory)
+    memory_buffer_size: int = 10
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

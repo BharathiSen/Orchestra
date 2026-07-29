@@ -47,6 +47,8 @@ class ChatRequest(BaseModel):
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     system_prompt: str | None = Field(default=None, max_length=20000)
     enable_tools: bool = True
+    # Day 8 — multi-agent Orchestra pipeline (Planner→Research→Writer→Reviewer)
+    enable_orchestra: bool = False
 
 
 class ToolInfo(BaseModel):

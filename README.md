@@ -64,10 +64,12 @@ docker compose --env-file ../.env up --build
 
 - LLM Integration (Gemini/Groq/Ollama)
 - Tool Calling
-- LangGraph agent workflow 
+- LangGraph agent workflow
+- Multi-agent Orchestra (Planner → Research → Writer → Reviewer)
+- Redis conversation memory + Postgres long-term preferences
 - Knowledge Base ingestion — upload, chunk, embed, pgvector
 - Streaming Responses
-
+- RAG grounded answers with retrieved sources panel
 ---
 
 ## Knowledge Layer
