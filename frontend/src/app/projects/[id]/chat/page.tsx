@@ -253,6 +253,9 @@ export default function ProjectChatPage() {
   }, [projectId, router]);
 
   useEffect(() => {
+    // Don't reload mid-stream: onMeta sets conversation id before tokens arrive,
+    // and a reload would wipe the optimistic assistant bubble.
+    if (sending) return;
     if (!token || !activeConversationId) {
       setMessages([]);
       return;
@@ -260,7 +263,7 @@ export default function ProjectChatPage() {
     loadConversationMessages(token, activeConversationId).catch((err) => {
       setError(err instanceof ApiError ? err.message : "Failed to load messages");
     });
-  }, [token, activeConversationId, loadConversationMessages]);
+  }, [token, activeConversationId, loadConversationMessages, sending]);
 
   useEffect(() => {
     scrollToBottom();
@@ -306,10 +309,11 @@ export default function ProjectChatPage() {
       content: userText,
     };
     const assistantId = `local-assistant-${Date.now()}`;
+    let streamConversationId: number | null = activeConversationId;
     setMessages((prev) => [
       ...prev,
       optimisticUser,
-      { id: assistantId, role: "assistant", content: "", tools: [] },
+      { id: assistantId, role: "assistant", content: "…", tools: [] },
     ]);
 
     try {
@@ -327,6 +331,7 @@ export default function ProjectChatPage() {
         },
         {
           onMeta: ({ conversation_id }) => {
+            streamConversationId = conversation_id;
             setActiveConversationId(conversation_id);
           },
           onToolStart: (tool) => {
@@ -409,13 +414,13 @@ export default function ProjectChatPage() {
 
       const list = await refreshConversations(token);
       const currentId =
-        activeConversationId ??
+        streamConversationId ??
         list.find((c) => c.title.includes(userText.slice(0, 20)))?.id ??
         list[0]?.id ??
         null;
       if (currentId) {
         setActiveConversationId(currentId);
-        // Keep live tool cards for this turn; reload only if we need canonical ids.
+        // Keep live tool cards for this turn; reload canonical messages after stream.
         const rows = await api.listMessages(token, currentId);
         setMessages((prev) => {
           const liveTools =
@@ -443,7 +448,24 @@ export default function ProjectChatPage() {
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Chat failed");
-      setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+      if (streamConversationId) {
+        try {
+          const rows = await api.listMessages(token, streamConversationId);
+          setMessages(
+            rows
+              .filter((m) => m.role === "user" || m.role === "assistant")
+              .map((m: ChatMessage) => ({
+                id: String(m.id),
+                role: m.role as "user" | "assistant",
+                content: m.content,
+              })),
+          );
+        } catch {
+          setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+        }
+      } else {
+        setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+      }
     } finally {
       setSending(false);
     }
