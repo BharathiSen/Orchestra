@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.memory.models import (
     MemoryStatus,
+    UserMemoryItem,
     UserMemoryListResponse,
     UserMemoryUpsert,
-    UserMemoryItem,
 )
 from app.memory.service import MemoryService
 from app.models import User
@@ -62,12 +62,17 @@ def upsert_preference(
     )
 
 
-@router.delete("/preferences/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/preferences/{memory_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 def delete_preference(
     memory_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     ok = MemoryService(db).delete_long_term(user_id=current_user.id, memory_id=memory_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
