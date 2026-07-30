@@ -22,11 +22,10 @@ async def lifespan(_: FastAPI):
         conn.execute(
             text("ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS trace JSON")
         )
-    redis = get_redis()
     try:
-        redis.ping()
+        get_redis().ping()
     except Exception:
-        # Redis is provisioned for later memory/sessions; not required for Day 1–2 CRUD.
+        # Redis powers memory/sessions; bad/missing URL must not block API boot.
         pass
     yield
 
