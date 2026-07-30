@@ -24,7 +24,10 @@ class FastAnswerAgent:
         system = (
             f"{base_system}\n\n"
             "You are answering on the Orchestra simple route. "
-            "Be concise and accurate. Prefer research notes and memory when present."
+            "Be concise and accurate. "
+            "If the user asks for their name or preferences, answer from conversation "
+            "history and long-term memory first. Do NOT say you cannot retrieve it "
+            "when the history/memory already contains the answer."
         )
         user = (
             f"Conversation:\n{history}\n\n"

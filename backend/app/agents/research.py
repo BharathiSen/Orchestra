@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from app.agents.base import history_snippet, llm_text, long_term_snippet
 from app.orchestrator.state import OrchestraState
+
+_PERSONAL_RE = re.compile(
+    r"\b("
+    r"my name|what(?:'s| is) my name|who am i|"
+    r"i prefer|my preference|remember (?:that|this|me)|"
+    r"what do you (?:know|remember) about me"
+    r")\b",
+    re.I,
+)
 
 
 class ResearchAgent:
@@ -31,9 +41,33 @@ class ResearchAgent:
     def __call__(self, state: OrchestraState) -> OrchestraState:
         question = state.get("question") or ""
         kb_ids = list(state.get("knowledge_base_ids") or [])
+        personal = bool(_PERSONAL_RE.search(question))
         retrieved: list[dict[str, Any]] = []
         notes_parts: list[str] = []
         search_notes = ""
+
+        memory_block = long_term_snippet(state.get("memory"))
+        history = history_snippet(state.get("messages") or [], limit=12)
+        plan = state.get("plan") or ""
+
+        # Personal / memory questions: prefer conversation + long-term memory over KB.
+        if personal:
+            notes_parts.append(
+                "Personal/memory question detected. Prioritize conversation history "
+                "and long-term user memory over knowledge-base excerpts."
+            )
+            if memory_block:
+                notes_parts.append(memory_block)
+            notes_parts.append(f"Conversation history:\n{history}")
+            summary = "Used conversation + long-term memory (skipped KB for personal Q)."
+            return {
+                "current_agent": self.name,
+                "retrieved_docs": [],
+                "research_notes": "\n".join(notes_parts).strip(),
+                "execution_history": [
+                    {"agent": self.name, "status": "done", "summary": summary}
+                ],
+            }
 
         try:
             retrieved, search_notes = self._parallel_gather(question, kb_ids)
@@ -63,10 +97,6 @@ class ResearchAgent:
         if search_notes:
             notes_parts.append("Web/search results:")
             notes_parts.append(search_notes)
-
-        memory_block = long_term_snippet(state.get("memory"))
-        history = history_snippet(state.get("messages") or [])
-        plan = state.get("plan") or ""
 
         if not notes_parts:
             system = (
@@ -110,10 +140,13 @@ class ResearchAgent:
             system = (
                 "You are the Research agent in Orchestra. "
                 "Condense the retrieved excerpts into clear research notes for the Writer. "
-                "Prefer facts from the excerpts. Do NOT invent sources."
+                "Prefer facts from the excerpts. Do NOT invent sources. "
+                "Also include any relevant conversation/memory facts."
             )
             user = (
                 f"Plan:\n{plan}\n\n"
+                f"Conversation:\n{history}\n\n"
+                f"{memory_block}\n\n"
                 f"Question:\n{question}\n\n"
                 f"Excerpts:\n" + "\n".join(notes_parts)
             )
@@ -191,7 +224,6 @@ class ResearchAgent:
                 elif kind == "search" and result:
                     search_notes = str(result)
 
-        # Dedupe by chunk_id, keep best score
         by_id: dict[Any, dict[str, Any]] = {}
         for item in retrieved:
             cid = item.get("chunk_id")
