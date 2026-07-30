@@ -58,6 +58,9 @@ export default function LoginPage() {
             Sign in to manage projects, agents, and chat with tool-powered
             assistants in your AI engineering workspace.
           </p>
+          <Link href="/" className="mt-6 inline-block text-sm font-medium text-accent hover:underline">
+            ← Back to landing
+          </Link>
         </div>
 
         <form

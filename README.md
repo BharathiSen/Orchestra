@@ -1,6 +1,6 @@
-# ORCHESTRA
+# Orchestra
 
-> A production-inspired AI Engineering Platform for designing, building, executing, evaluating, and debugging LangGraph-powered AI agents.
+Production-inspired AI engineering platform for designing, running, evaluating, and debugging LangGraph-powered agents — with memory, RAG (Postgres + **pgvector**), and full execution observability.
 
 ![Status](https://img.shields.io/badge/status-active-success)
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
@@ -9,31 +9,108 @@
 
 ---
 
-## 📖 Overview
+## Overview
 
-Orchestra is a full-stack AI engineering platform inspired by tools such as LangSmith, LangGraph Studio, Flowise, and enterprise AI development platforms.
-
-Orchestra acts as a centralized workspace where developers can:
-
-- Create AI agents
-- Build multi-agent workflows
-- Attach tools
-- Connect knowledge bases
-- Execute LangGraph pipelines
-- Observe execution traces
-- Evaluate responses
-- Manage prompts
-- Compare models
-- Debug agent behavior
-
-The objective is to learn modern AI Engineering by building a production-ready platform from scratch.
+Orchestra is a full-stack workspace for agent development: projects, agents, multi-agent pipelines, knowledge bases, Redis memory, and traced executions with replay. Vectors are stored in **PostgreSQL via pgvector** (not Qdrant).
 
 ---
 
-# 🚀 Quick start
+## Features
+
+| Area | Capabilities |
+|------|----------------|
+| Platform | Auth, projects, agents, Docker, REST + SSE |
+| Agents | LangGraph tools graph + Orchestra multi-agent (Planner → Research → Writer → Reviewer) |
+| Memory | Redis short-term buffer + Postgres long-term preferences |
+| RAG | Upload PDF/DOCX/TXT → chunk → embed (fastembed) → pgvector retrieve |
+| Observability | Executions, steps, tokens, cost, latency, ratings, replay, search filters |
+| LLM | Groq / Gemini / Ollama via pluggable providers |
+
+---
+
+## Architecture
+
+![Orchestra architecture](docs/architecture.png)
+
+```text
+                Next.js Frontend
+                       │
+                      REST / SSE
+                       │
+                FastAPI Backend
+                       │
+     ┌─────────────────┼─────────────────┐
+     │                 │                 │
+ PostgreSQL         Redis           LangGraph
+ + pgvector      (memory)         Orchestrator
+     │                                   │
+ embeddings                      Planner → Research
+ chunks                          → Writer → Reviewer
+                                       │
+                                  LLM Providers
+```
+
+```mermaid
+flowchart TD
+  UI[Next.js] -->|REST / SSE| API[FastAPI]
+  API --> PG[(Postgres + pgvector)]
+  API --> RD[(Redis)]
+  API --> LG[LangGraph Orchestra]
+  LG --> LLM[Groq / Gemini / Ollama]
+  API --> Trace[Executions + Steps]
+  Trace --> PG
+```
+
+---
+
+## Tech Stack
+
+| Layer | Stack |
+|-------|--------|
+| Frontend | Next.js, React, TypeScript, Tailwind CSS |
+| Backend | FastAPI, SQLAlchemy, Python 3.12 |
+| Data | PostgreSQL + **pgvector**, Redis |
+| AI | LangGraph, LangChain-style flows, fastembed |
+| Infra | Docker Compose (see also [DEPLOYMENT.md](docs/DEPLOYMENT.md)) |
+
+---
+
+## Folder Structure
+
+```text
+Orchestra/
+├── backend/          # FastAPI app, agents, RAG, observability
+├── frontend/         # Next.js UI
+├── database/         # init.sql (extensions + schema)
+├── docker/           # docker-compose.yml
+├── docs/             # Architecture, API, deployment
+└── README.md
+```
+
+---
+
+## Screenshots
+
+Capture these locally after `docker compose up` and drop paths under `docs/screenshots/` when ready:
+
+| Screen | Suggested URL |
+|--------|----------------|
+| Landing | http://localhost:13000/ |
+| Login | http://localhost:13000/login |
+| Dashboard | http://localhost:13000/dashboard |
+| Chat | http://localhost:13000/projects/{id}/chat |
+| Knowledge | http://localhost:13000/projects/{id}/knowledge |
+| Execution History | http://localhost:13000/projects/{id}/observability |
+| Execution detail | http://localhost:13000/projects/{id}/executions/{executionId} |
+| API docs | http://localhost:18000/docs |
+
+---
+
+## Quick start (Docker)
 
 ```bash
 cp .env.example .env
+# Add GROQ_API_KEY or GEMINI_API_KEY
 cd docker
 docker compose --env-file ../.env up --build
 ```
@@ -44,202 +121,117 @@ docker compose --env-file ../.env up --build
 | API docs | http://localhost:18000/docs |
 | Health | http://localhost:18000/health |
 
+Default compose host ports (`FRONTEND_PORT` / `BACKEND_PORT`) avoid clashes with local 3000/8000 — see `.env.example`.
 
 ---
 
-# ✨ Core Features
+## Installation
 
-## Platform
+### Prerequisites
 
-- User Authentication
-- Project Workspace
-- Agent Management
-- Role-based Architecture
-- REST API
-- Docker Deployment
+- Docker + Docker Compose, **or**
+- Node 20+, Python 3.12, Postgres with pgvector, Redis
 
----
+### Backend (local)
 
-## AI Engineering
-
-- LLM Integration (Gemini/Groq/Ollama)
-- Tool Calling
-- LangGraph agent workflow
-- Multi-agent Orchestra (Planner → Research → Writer → Reviewer)
-- Redis conversation memory + Postgres long-term preferences
-- Knowledge Base ingestion — upload, chunk, embed, pgvector
-- Streaming Responses
-- RAG grounded answers with retrieved sources panel
-- Execution observability — tokens, cost, latency, traces, replay
----
-
-## Knowledge Layer
-
-- Document Upload (PDF, DOCX, TXT)
-- Text extraction (PyMuPDF / python-docx)
-- Chunking with overlap
-- Embeddings (fastembed — BAAI/bge-small-en-v1.5)
-- Vector storage (pgvector in PostgreSQL)
-- Chunk inspector UI for debugging
-
----
-
-## AI Operations
-
-- Execution History (`executions` + `execution_steps`)
-- Token Tracking (input / output / total)
-- Cost Tracking (model pricing → USD)
-- Latency Monitoring (per-step + total)
-- Execution Tracing (Execution ID → Planner → Research → … → Response)
-- Heuristic Evaluation scores (correctness / relevance / groundedness)
-- Execution Replay (stored prompt + context → re-run in Chat)
-- Observability Dashboard (24h summary + recent executions)
-
----
-
-## Observability Architecture
-
-```
-User Request
-     │
-     ▼
-ChatService.stream_chat
-     │
-     ├─ TraceService.start → Execution (status=running)
-     ├─ TrackingLLM wraps provider calls → tokens / latency / cost
-     ├─ Pipeline steps (planner, research, writer, …) timed into ExecutionStep
-     ├─ Snapshot stores prompt, retrieved chunks, tool calls, orchestra steps
-     └─ TraceService.complete → scores + aggregates
-           │
-           ▼
-    Observability API + UI
-    /dashboard/summary · /executions · /executions/{id} · /replay
+```bash
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 ```
 
-### Evaluation Metrics
+### Frontend (local)
 
-Heuristic only (no LLM-as-a-judge): correctness, relevance, groundedness, hallucination_risk, latency_ok. Aggregates: success rate, average latency, total tokens, total cost, step latency breakdown.
-
-### Token Tracking
-
-Every LLM `complete_chat` / stream records prompt + completion tokens (provider usage when available, else ~4 chars/token estimate). Stored on `executions` and each `execution_steps` row.
-
-### Cost Tracking
-
-`evaluation/cost.py` maps model → USD per 1M input/output tokens. Cost = f(input_tokens, output_tokens, model). Surfaced on the dashboard and execution detail.
-
-### Tracing
-
-Each chat turn gets an Execution ID. Steps mirror the live UI (Orchestra agents or tools graph nodes). SSE emits `execution_meta` with `execution_id`; `done` includes latency/tokens/cost.
-
-### Replay
-
-`POST /api/v1/executions/{id}/replay` returns the stored prompt, pipeline flags, and snapshot. The UI opens Chat with those params prefilled so you can re-run and compare.
-
-### Dashboard
-
-Project → **Observability**: today’s executions, success rate, average latency, total tokens, total cost, recent list, and per-execution detail with steps / scores / rating.
-
----
-
-## Advanced Features
-
-- Model Routing
-- Guardrails
-- MCP Integration
-- Workflow Templates
-- Human-in-the-loop
-- Agent Marketplace (Future)
-
----
-
-# 🏗️ Architecture
-
-```
-                Next.js Frontend
-                       │
-                       REST
-                       │
-                FastAPI Backend
-                       │
-     ┌─────────────────┼─────────────────┐
-     │                 │
- PostgreSQL         Redis
-     │                 │
-     └─────────────────┼─────────────────┘
-                       │
-                  LangGraph Runtime
-                       │
-      Planner → Tools → Reviewer → Answer
-                       │
-                   LLM Providers
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
----
+Set `NEXT_PUBLIC_API_URL` to your API origin.
 
-# 🛠 Tech Stack
-
-## Frontend
-
-- Next.js
-- React
-- TypeScript
-- Tailwind CSS
+Cloud deploy: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (Vercel + Railway/Render + Neon + Upstash).
 
 ---
 
-## Backend
+## Environment variables
 
-- FastAPI
-- Python
-- SQLAlchemy
-- PostgreSQL
-- Redis
+| Variable | Used by | Notes |
+|----------|---------|--------|
+| `DATABASE_URL` | Backend | `postgresql+psycopg2://…` (pgvector-enabled DB) |
+| `REDIS_URL` | Backend | Short-term memory |
+| `JWT_SECRET` | Backend | Sign access tokens |
+| `CORS_ORIGINS` | Backend | Frontend origin(s) |
+| `LLM_PROVIDER` | Backend | `groq` \| `gemini` \| `ollama` |
+| `GROQ_API_KEY` | Backend | Free cloud testing |
+| `GEMINI_API_KEY` | Backend | Production Gemini |
+| `UPLOAD_DIR` | Backend | Knowledge uploads |
+| `NEXT_PUBLIC_API_URL` | Frontend | Public API base URL |
 
----
-
-## AI
-
-- Gemini / Groq / Ollama
-- LangChain
-- LangGraph
-- pgvector
-- Embeddings
-- RAG
+Full list: [.env.example](.env.example). **No Qdrant URL** — vectors are in Postgres.
 
 ---
 
-## Infrastructure
+## API summary
 
-- Docker
-- Docker Compose
+Base: `/api/v1` · Auth: `Authorization: Bearer <token>` · Interactive: `/docs`
 
----
+| Area | Endpoints |
+|------|-----------|
+| Auth | `POST /auth/signup`, `POST /auth/login`, `GET /auth/me` |
+| Projects / Agents | CRUD under `/projects`, `/agents` |
+| Chat | `POST /chat` (SSE), conversations + messages |
+| Knowledge | `/knowledge-bases`, documents, chunks |
+| Memory | `/memory/status`, preferences, conversation dump |
+| Dashboard | `/dashboard/summary`, `/dashboard/metrics` |
+| Executions | `GET /executions?project_id=&limit=&q=&status=&pipeline=` |
+| Detail / replay | `GET /executions/{id}`, `POST .../rating`, `POST .../replay` |
 
-# 🎯 Learning Objectives
-
-This project is designed to master:
-
-- Production AI Engineering
-- Agentic AI
-- LangGraph
-- Modern Backend Development
-- LLM Application Development
-- AI Infrastructure
-- System Design
-- Docker Deployment
+**Execution search** supports optional `q` (prompt/response/pipeline/model text), `status`, and `pipeline` in addition to `limit`.
 
 ---
 
-# 📚 Inspiration
+## Prompt Library
 
-- LangGraph Studio
-- LangSmith
-- Flowise
-- LangFlow
-- n8n
-- Gemini / Groq / Ollama
-- CrewAI
+Agent system prompts and Orchestra role prompts live under `backend/app/prompts/`:
+
+| Module | Role |
+|--------|------|
+| `system.py` | Shared system framing |
+| `planner.py` | Planning / routing |
+| `research.py` | Research agent |
+| `writer.py` | Drafting |
+| `reviewer.py` | Quality review |
+| `fast_answer.py` | Simple Q&A path |
+
+Edit these modules to tune multi-agent behavior without changing graph wiring.
 
 ---
 
+## Observability
+
+Each chat turn creates an **Execution** with timed **ExecutionSteps**, token/cost aggregates, heuristic scores, and an optional snapshot for **replay**.
+
+- UI: Project → **Observability** (Execution History) — search, filter, open detail
+- Metrics: today’s count, success rate, latency, tokens, cost, step averages
+- Replay: restore prompt + pipeline flags into Chat
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the Day 10 system diagram.
+
+---
+
+## Roadmap
+
+- [ ] Human-in-the-loop interrupts
+- [ ] Stronger evaluation (LLM-as-judge optional)
+- [ ] MCP tool packs
+- [ ] Workflow templates / marketplace
+- [ ] Guardrails and model routing policies
+
+---
+
+## License
+
+MIT — see repository license file if present; otherwise treat as MIT for personal/portfolio use.

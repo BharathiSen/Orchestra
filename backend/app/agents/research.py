@@ -9,6 +9,7 @@ from typing import Any
 
 from app.agents.base import history_snippet, llm_text, long_term_snippet
 from app.orchestrator.state import OrchestraState
+from app.prompts.research import research_no_kb_prompt, research_with_excerpts_prompt
 
 _PERSONAL_RE = re.compile(
     r"\b("
@@ -99,11 +100,7 @@ class ResearchAgent:
             notes_parts.append(search_notes)
 
         if not notes_parts:
-            system = (
-                "You are the Research agent in Orchestra. "
-                "No knowledge-base hits were available. Summarize what is already known "
-                "from conversation/memory and list open questions. Do NOT write the final answer."
-            )
+            system = research_no_kb_prompt()
             user = (
                 f"Plan:\n{plan}\n\n"
                 f"Conversation:\n{history}\n\n"
@@ -137,12 +134,7 @@ class ResearchAgent:
                     ],
                 }
         else:
-            system = (
-                "You are the Research agent in Orchestra. "
-                "Condense the retrieved excerpts into clear research notes for the Writer. "
-                "Prefer facts from the excerpts. Do NOT invent sources. "
-                "Also include any relevant conversation/memory facts."
-            )
+            system = research_with_excerpts_prompt()
             user = (
                 f"Plan:\n{plan}\n\n"
                 f"Conversation:\n{history}\n\n"

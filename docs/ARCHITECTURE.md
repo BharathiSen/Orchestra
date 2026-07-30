@@ -1,3 +1,50 @@
+# Architecture — Day 10 (system overview)
+
+End-to-end production shape of Orchestra after Days 1–10. **Vectors use Postgres + pgvector** (not Qdrant).
+
+![Orchestra architecture](architecture.png)
+
+```text
+                         ┌──────────────────────┐
+                         │   Next.js Frontend   │
+                         │  Landing · Chat · KB │
+                         │  Observability · Replay│
+                         └──────────┬───────────┘
+                                    │ REST + SSE
+                         ┌──────────▼───────────┐
+                         │    FastAPI Backend   │
+                         │  Auth · Projects ·   │
+                         │  Chat · RAG · Memory │
+                         │  Trace · Evaluate    │
+                         └──────────┬───────────┘
+              ┌─────────────────────┼─────────────────────┐
+              │                     │                     │
+     ┌────────▼────────┐   ┌────────▼────────┐   ┌───────▼────────┐
+     │ Postgres+pgvector│   │     Redis      │   │   LangGraph    │
+     │ users, agents,   │   │ short-term     │   │ Orchestra /    │
+     │ chunks+embeddings│   │ conversation   │   │ tools graph    │
+     │ executions/steps │   │ buffer         │   └───────┬────────┘
+     └─────────────────┘   └─────────────────┘           │
+                                                    LLM providers
+                                                 Groq / Gemini / Ollama
+```
+
+```mermaid
+flowchart LR
+  User --> FE[Next.js]
+  FE -->|JWT REST/SSE| BE[FastAPI]
+  BE --> PG[(Postgres + pgvector)]
+  BE --> Redis[(Redis memory)]
+  BE --> Graph[LangGraph agents]
+  Graph --> LLM[Groq / Gemini / Ollama]
+  BE --> Obs[Executions + metrics]
+  Obs --> PG
+```
+
+**Day 10 UI/docs polish:** branded landing, 404, execution search (`q` / `status` / `pipeline`), deployment guide. Earlier day notes follow.
+
+---
+
 # Architecture — Days 1–6
 
 ## Principle

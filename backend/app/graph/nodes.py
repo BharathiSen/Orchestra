@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from app.graph.state import GraphState
+from app.prompts.system import graph_reviewer_prompt
 
 
 class PlannerNode:
@@ -214,7 +215,7 @@ class ReviewerNode:
         review_messages = [
             {
                 'role': 'system',
-                'content': 'You are a strict reviewer. Focus on accuracy and clarity.',
+                'content': graph_reviewer_prompt(),
             },
             {'role': 'user', 'content': prompt},
         ]

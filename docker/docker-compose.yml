@@ -1,3 +1,5 @@
+# Orchestra local stack: Next.js frontend, FastAPI backend, Postgres+pgvector
+# (embeddings — not Qdrant), and Redis for short-term conversation memory.
 services:
   postgres:
     image: pgvector/pgvector:pg16

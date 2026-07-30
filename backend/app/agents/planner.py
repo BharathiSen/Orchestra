@@ -6,6 +6,7 @@ from typing import Any
 
 from app.agents.base import history_snippet, llm_text, long_term_snippet
 from app.orchestrator.state import OrchestraState
+from app.prompts.planner import planner_fallback_plan, planner_prompt
 
 
 class PlannerAgent:
@@ -19,12 +20,7 @@ class PlannerAgent:
         memory_block = long_term_snippet(state.get("memory"))
         history = history_snippet(state.get("messages") or [])
 
-        system = (
-            "You are the Planner agent in Orchestra. "
-            "Break the user's request into 3-6 short, actionable steps. "
-            "Do NOT write the final answer. Focus on what Research and Writer must do. "
-            "If the user asks a factual question about a document/KB, include a research step."
-        )
+        system = planner_prompt()
         user = (
             f"Conversation history:\n{history}\n\n"
             f"{memory_block}\n\n"
@@ -42,7 +38,7 @@ class PlannerAgent:
                 temperature=min(float(state.get("temperature") or 0.2), 0.4),
             )
             if not plan:
-                plan = "1. Research relevant context\n2. Draft an answer\n3. Review quality"
+                plan = planner_fallback_plan()
             return {
                 "current_agent": self.name,
                 "plan": plan,
@@ -55,7 +51,7 @@ class PlannerAgent:
                 ],
             }
         except Exception as exc:  # noqa: BLE001
-            fallback = "1. Research relevant context\n2. Draft an answer\n3. Review quality"
+            fallback = planner_fallback_plan()
             return {
                 "current_agent": self.name,
                 "plan": fallback,

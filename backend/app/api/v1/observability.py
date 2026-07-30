@@ -100,11 +100,19 @@ def dashboard_metrics(
 def list_executions(
     project_id: int = Query(...),
     limit: int = Query(50, ge=1, le=200),
+    q: str | None = Query(default=None, description="Search prompt/response/pipeline/model"),
+    status: str | None = Query(default=None),
+    pipeline: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ExecutionSummaryOut]:
     rows = DashboardService(db).list_executions(
-        user=current_user, project_id=project_id, limit=limit
+        user=current_user,
+        project_id=project_id,
+        limit=limit,
+        q=q,
+        status=status,
+        pipeline=pipeline,
     )
     return [_summary_out(r) for r in rows]
 

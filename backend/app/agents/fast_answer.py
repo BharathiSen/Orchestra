@@ -6,6 +6,7 @@ from typing import Any
 
 from app.agents.base import history_snippet, llm_text, long_term_snippet
 from app.orchestrator.state import OrchestraState
+from app.prompts.fast_answer import fast_answer_prompt
 
 
 class FastAnswerAgent:
@@ -16,19 +17,11 @@ class FastAnswerAgent:
 
     def __call__(self, state: OrchestraState) -> OrchestraState:
         question = state.get("question") or ""
-        base_system = state.get("system_prompt") or "You are a helpful AI assistant."
         research = state.get("research_notes") or ""
         memory_block = long_term_snippet(state.get("memory"))
         history = history_snippet(state.get("messages") or [])
 
-        system = (
-            f"{base_system}\n\n"
-            "You are answering on the Orchestra simple route. "
-            "Be concise and accurate. "
-            "If the user asks for their name or preferences, answer from conversation "
-            "history and long-term memory first. Do NOT say you cannot retrieve it "
-            "when the history/memory already contains the answer."
-        )
+        system = fast_answer_prompt(base_system=state.get("system_prompt"))
         user = (
             f"Conversation:\n{history}\n\n"
             f"{memory_block}\n\n"

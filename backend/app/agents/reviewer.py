@@ -6,6 +6,7 @@ from typing import Any
 
 from app.agents.base import llm_text
 from app.orchestrator.state import OrchestraState
+from app.prompts.reviewer import reviewer_prompt
 
 
 class ReviewerAgent:
@@ -19,13 +20,7 @@ class ReviewerAgent:
         draft = state.get("draft") or ""
         research = state.get("research_notes") or ""
 
-        system = (
-            "You are the Reviewer agent in Orchestra. "
-            "Check the draft for clarity, grounding against research notes, and completeness. "
-            "Return TWO sections:\n"
-            "NOTES: 2-4 short bullet points of review notes\n"
-            "FINAL: the improved final answer for the user (rewrite if needed, keep accurate)."
-        )
+        system = reviewer_prompt()
         user = (
             f"Question:\n{question}\n\n"
             f"Research notes:\n{research}\n\n"
@@ -86,5 +81,4 @@ class ReviewerAgent:
             final = final_part or draft
             return notes, final
 
-        # If model ignored format, treat whole output as improved answer
         return "Model returned a single block; treated as final answer.", text

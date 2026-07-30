@@ -23,12 +23,9 @@ from app.services.llm_provider import (
     missing_provider_message,
 )
 from app.tools import ensure_default_tools
-TOOL_SYSTEM_ADDENDUM = (
-    "\n\nYou have access to tools. Use them when they help answer accurately "
-    "(math -> calculator, weather -> weather, project/AI concepts -> search). "
-    "After tool results arrive, give a clear final answer to the user. "
-    "Do not invent tool results."
-)
+from app.prompts.system import tool_system_addendum
+
+TOOL_SYSTEM_ADDENDUM = tool_system_addendum()
 
 
 class ChatService:

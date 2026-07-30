@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.evaluation.metrics import average, success_rate, sum_decimal_as_float
@@ -67,14 +67,30 @@ class DashboardService:
         user: User,
         project_id: int,
         limit: int = 50,
+        q: str | None = None,
+        status: str | None = None,
+        pipeline: str | None = None,
     ) -> list[Execution]:
         self._owned_project(project_id=project_id, user=user)
+        stmt = select(Execution).where(Execution.project_id == project_id)
+        needle = (q or "").strip()
+        if needle:
+            like = f"%{needle}%"
+            stmt = stmt.where(
+                or_(
+                    Execution.prompt.ilike(like),
+                    Execution.final_response.ilike(like),
+                    Execution.pipeline.ilike(like),
+                    Execution.model_name.ilike(like),
+                )
+            )
+        if status and status.strip():
+            stmt = stmt.where(Execution.status == status.strip())
+        if pipeline and pipeline.strip():
+            stmt = stmt.where(Execution.pipeline.ilike(f"%{pipeline.strip()}%"))
         return list(
             self.db.scalars(
-                select(Execution)
-                .where(Execution.project_id == project_id)
-                .order_by(Execution.started_at.desc())
-                .limit(min(limit, 200))
+                stmt.order_by(Execution.started_at.desc()).limit(min(limit, 200))
             ).all()
         )
 

@@ -715,12 +715,35 @@ export const api = {
       {},
       token,
     ),
-  listExecutions: (token: string, projectId: number, limit = 50) =>
-    request<ExecutionSummary[]>(
-      `/api/v1/executions?project_id=${projectId}&limit=${limit}`,
+  listExecutions: (
+    token: string,
+    projectId: number,
+    options:
+      | number
+      | {
+          limit?: number;
+          q?: string;
+          status?: string;
+          pipeline?: string;
+        } = 50,
+  ) => {
+    const opts =
+      typeof options === "number"
+        ? { limit: options }
+        : { limit: 50, ...options };
+    const params = new URLSearchParams({
+      project_id: String(projectId),
+      limit: String(opts.limit ?? 50),
+    });
+    if (opts.q?.trim()) params.set("q", opts.q.trim());
+    if (opts.status?.trim()) params.set("status", opts.status.trim());
+    if (opts.pipeline?.trim()) params.set("pipeline", opts.pipeline.trim());
+    return request<ExecutionSummary[]>(
+      `/api/v1/executions?${params.toString()}`,
       {},
       token,
-    ),
+    );
+  },
   getExecution: (token: string, executionId: number) =>
     request<ExecutionDetail>(`/api/v1/executions/${executionId}`, {}, token),
   rateExecution: (token: string, executionId: number, rating: number) =>

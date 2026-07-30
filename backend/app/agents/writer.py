@@ -6,6 +6,7 @@ from typing import Any
 
 from app.agents.base import history_snippet, llm_text, long_term_snippet
 from app.orchestrator.state import OrchestraState
+from app.prompts.writer import writer_prompt
 
 
 class WriterAgent:
@@ -16,19 +17,12 @@ class WriterAgent:
 
     def __call__(self, state: OrchestraState) -> OrchestraState:
         question = state.get("question") or ""
-        base_system = state.get("system_prompt") or "You are a helpful AI assistant."
         memory_block = long_term_snippet(state.get("memory"))
         history = history_snippet(state.get("messages") or [])
         plan = state.get("plan") or ""
         research = state.get("research_notes") or ""
 
-        system = (
-            f"{base_system}\n\n"
-            "You are the Writer agent in Orchestra. "
-            "Write a clear, complete answer for the user. "
-            "Ground claims in the research notes when present. "
-            "Respect user preferences from long-term memory."
-        )
+        system = writer_prompt(base_system=state.get("system_prompt"))
         user = (
             f"Conversation:\n{history}\n\n"
             f"{memory_block}\n\n"
