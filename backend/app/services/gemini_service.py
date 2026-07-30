@@ -249,6 +249,9 @@ class GeminiService:
             tool_calls=tool_calls,
             finish_reason="tool_calls" if tool_calls else "stop",
             raw_assistant_message=raw_message,
+            prompt_tokens=_gemini_usage(response, "prompt_token_count"),
+            completion_tokens=_gemini_usage(response, "candidates_token_count"),
+            total_tokens=_gemini_usage(response, "total_token_count"),
         )
 
     def _raise_mapped(self, exc: Exception) -> None:
@@ -290,3 +293,16 @@ class GeminiService:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Gemini API error: {message}",
         ) from exc
+
+
+def _gemini_usage(response: Any, attr: str) -> int | None:
+    meta = getattr(response, "usage_metadata", None)
+    if meta is None:
+        return None
+    value = getattr(meta, attr, None)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

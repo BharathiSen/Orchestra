@@ -179,6 +179,12 @@ export default function ProjectDetailPage() {
             Knowledge Base
           </Link>
           <Link
+            href={`/projects/${projectId}/observability`}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+          >
+            Observability
+          </Link>
+          <Link
             href="/dashboard"
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
           >
@@ -217,6 +223,12 @@ export default function ProjectDetailPage() {
           className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
         >
           Chat
+        </Link>
+        <Link
+          href={`/projects/${projectId}/observability`}
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+        >
+          Observability
         </Link>
       </nav>
 

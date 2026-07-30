@@ -134,11 +134,15 @@ class OpenAICompatibleService:
                 )
             )
 
+        usage = data.get("usage") or {}
         return ChatCompletionResult(
             content=content,
             tool_calls=tool_calls,
             finish_reason=finish_reason,
             raw_assistant_message=message,
+            prompt_tokens=_usage_int(usage, "prompt_tokens"),
+            completion_tokens=_usage_int(usage, "completion_tokens"),
+            total_tokens=_usage_int(usage, "total_tokens"),
         )
 
     def stream_chat_completion(
@@ -233,3 +237,13 @@ class OpenAICompatibleService:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"{self.provider_name} error ({status_code}): {body[:500]}",
         )
+
+
+def _usage_int(usage: dict[str, Any], key: str) -> int | None:
+    value = usage.get(key)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

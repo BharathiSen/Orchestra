@@ -21,6 +21,9 @@ class ChatCompletionResult:
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     finish_reason: str | None = None
     raw_assistant_message: dict[str, Any] | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
 
     @property
     def has_tool_calls(self) -> bool:

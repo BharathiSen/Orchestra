@@ -70,6 +70,7 @@ docker compose --env-file ../.env up --build
 - Knowledge Base ingestion — upload, chunk, embed, pgvector
 - Streaming Responses
 - RAG grounded answers with retrieved sources panel
+- Execution observability — tokens, cost, latency, traces, replay
 ---
 
 ## Knowledge Layer
@@ -85,13 +86,59 @@ docker compose --env-file ../.env up --build
 
 ## AI Operations
 
-- Execution History
-- Prompt Versioning
-- Evaluation Dashboard
-- Cost Tracking
-- Token Analytics
-- Latency Monitoring
-- Observability
+- Execution History (`executions` + `execution_steps`)
+- Token Tracking (input / output / total)
+- Cost Tracking (model pricing → USD)
+- Latency Monitoring (per-step + total)
+- Execution Tracing (Execution ID → Planner → Research → … → Response)
+- Heuristic Evaluation scores (correctness / relevance / groundedness)
+- Execution Replay (stored prompt + context → re-run in Chat)
+- Observability Dashboard (24h summary + recent executions)
+
+---
+
+## Observability Architecture
+
+```
+User Request
+     │
+     ▼
+ChatService.stream_chat
+     │
+     ├─ TraceService.start → Execution (status=running)
+     ├─ TrackingLLM wraps provider calls → tokens / latency / cost
+     ├─ Pipeline steps (planner, research, writer, …) timed into ExecutionStep
+     ├─ Snapshot stores prompt, retrieved chunks, tool calls, orchestra steps
+     └─ TraceService.complete → scores + aggregates
+           │
+           ▼
+    Observability API + UI
+    /dashboard/summary · /executions · /executions/{id} · /replay
+```
+
+### Evaluation Metrics
+
+Heuristic only (no LLM-as-a-judge): correctness, relevance, groundedness, hallucination_risk, latency_ok. Aggregates: success rate, average latency, total tokens, total cost, step latency breakdown.
+
+### Token Tracking
+
+Every LLM `complete_chat` / stream records prompt + completion tokens (provider usage when available, else ~4 chars/token estimate). Stored on `executions` and each `execution_steps` row.
+
+### Cost Tracking
+
+`evaluation/cost.py` maps model → USD per 1M input/output tokens. Cost = f(input_tokens, output_tokens, model). Surfaced on the dashboard and execution detail.
+
+### Tracing
+
+Each chat turn gets an Execution ID. Steps mirror the live UI (Orchestra agents or tools graph nodes). SSE emits `execution_meta` with `execution_id`; `done` includes latency/tokens/cost.
+
+### Replay
+
+`POST /api/v1/executions/{id}/replay` returns the stored prompt, pipeline flags, and snapshot. The UI opens Chat with those params prefilled so you can re-run and compare.
+
+### Dashboard
+
+Project → **Observability**: today’s executions, success rate, average latency, total tokens, total cost, recent list, and per-execution detail with steps / scores / rating.
 
 ---
 

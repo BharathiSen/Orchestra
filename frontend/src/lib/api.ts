@@ -225,6 +225,86 @@ export type UserMemoryItem = {
   updated_at: string;
 };
 
+export type DashboardSummary = {
+  project_id: number;
+  window: string;
+  executions_today: number;
+  success_rate: number;
+  average_latency_ms: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  average_tokens: number;
+};
+
+export type MetricsBreakdown = {
+  project_id: number;
+  executions: number;
+  by_pipeline: Record<string, number>;
+  step_avg_latency_ms: Record<string, number>;
+  rated_count: number;
+  average_rating: number;
+};
+
+export type ExecutionStep = {
+  id: number;
+  sequence: number;
+  step_name: string;
+  status: string;
+  latency_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  tokens: number;
+  cost_usd: number;
+  detail: Record<string, unknown> | null;
+  started_at: string;
+  completed_at: string | null;
+};
+
+export type ExecutionSummary = {
+  id: number;
+  project_id: number;
+  conversation_id: number | null;
+  agent_id: number | null;
+  message_id: number | null;
+  status: string;
+  pipeline: string;
+  model_name: string;
+  prompt: string;
+  final_response: string | null;
+  started_at: string;
+  completed_at: string | null;
+  latency_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  api_calls: number;
+  total_cost_usd: number;
+  success: boolean;
+  user_rating: number | null;
+  scores: Record<string, unknown> | null;
+};
+
+export type ExecutionDetail = ExecutionSummary & {
+  error_detail: string | null;
+  snapshot: Record<string, unknown> | null;
+  steps: ExecutionStep[];
+};
+
+export type ReplayPayload = {
+  execution_id: number;
+  project_id: number;
+  conversation_id: number | null;
+  agent_id: number | null;
+  model_name: string;
+  prompt: string;
+  pipeline: string;
+  enable_orchestra: boolean;
+  enable_tools: boolean;
+  snapshot: Record<string, unknown> | null;
+  final_response: string | null;
+  chat_hint: string;
+};
+
 export type ChatStreamHandlers = {
   onMeta?: (data: { conversation_id: number; title: string }) => void;
   onUserMessage?: (data: ChatMessage) => void;
@@ -620,6 +700,39 @@ export const api = {
     request<void>(
       `/api/v1/memory/preferences/${memoryId}`,
       { method: "DELETE" },
+      token,
+    ),
+
+  dashboardSummary: (token: string, projectId: number) =>
+    request<DashboardSummary>(
+      `/api/v1/dashboard/summary?project_id=${projectId}`,
+      {},
+      token,
+    ),
+  dashboardMetrics: (token: string, projectId: number) =>
+    request<MetricsBreakdown>(
+      `/api/v1/dashboard/metrics?project_id=${projectId}`,
+      {},
+      token,
+    ),
+  listExecutions: (token: string, projectId: number, limit = 50) =>
+    request<ExecutionSummary[]>(
+      `/api/v1/executions?project_id=${projectId}&limit=${limit}`,
+      {},
+      token,
+    ),
+  getExecution: (token: string, executionId: number) =>
+    request<ExecutionDetail>(`/api/v1/executions/${executionId}`, {}, token),
+  rateExecution: (token: string, executionId: number, rating: number) =>
+    request<ExecutionSummary>(
+      `/api/v1/executions/${executionId}/rating`,
+      { method: "POST", body: JSON.stringify({ rating }) },
+      token,
+    ),
+  replayExecution: (token: string, executionId: number) =>
+    request<ReplayPayload>(
+      `/api/v1/executions/${executionId}/replay`,
+      { method: "POST" },
       token,
     ),
 };

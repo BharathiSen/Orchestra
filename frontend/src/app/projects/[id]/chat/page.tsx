@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -365,6 +365,7 @@ function attachExtrasToMessages(
 
 export default function ProjectChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const params = useParams<{ id: string }>();
   const projectId = Number(params.id);
 
@@ -393,7 +394,9 @@ export default function ProjectChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replayBanner, setReplayBanner] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const replayAppliedRef = useRef(false);
   // Message history API does not persist RAG/tool/graph UI extras.
   // Keep them in-session so the post-stream reload does not wipe the panel.
   const conversationExtrasRef = useRef<Record<number, ConversationExtras>>({});
@@ -531,6 +534,33 @@ export default function ProjectChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, sending]);
+
+  // Day 9 — apply replay query params once (prompt + pipeline flags)
+  useEffect(() => {
+    if (loading || replayAppliedRef.current) return;
+    if (searchParams.get("replay") !== "1") return;
+    replayAppliedRef.current = true;
+    const message = searchParams.get("message");
+    if (message) setInput(message);
+    const replayModel = searchParams.get("model");
+    if (replayModel) setModel(replayModel);
+    const conv = searchParams.get("conversation_id");
+    if (conv && Number.isFinite(Number(conv))) {
+      setActiveConversationId(Number(conv));
+    }
+    const agent = searchParams.get("agent_id");
+    if (agent && Number.isFinite(Number(agent))) {
+      setAgentId(Number(agent));
+    }
+    if (searchParams.get("orchestra") === "1") {
+      setEnableOrchestra(true);
+      setEnableTools(false);
+    } else if (searchParams.get("tools") === "1") {
+      setEnableOrchestra(false);
+      setEnableTools(true);
+    }
+    setReplayBanner(true);
+  }, [loading, searchParams]);
 
   async function onSavePreference() {
     if (!token || !prefDraft.key.trim() || !prefDraft.value.trim()) return;
@@ -839,6 +869,12 @@ export default function ProjectChatPage() {
             Knowledge Base
           </Link>
           <Link
+            href={`/projects/${projectId}/observability`}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+          >
+            Observability
+          </Link>
+          <Link
             href="/dashboard"
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
           >
@@ -1048,6 +1084,12 @@ export default function ProjectChatPage() {
           </div>
 
           <form onSubmit={onSend} className="border-t border-slate-200 p-3">
+            {replayBanner && (
+              <p className="mb-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-900">
+                Replay loaded — same prompt and pipeline flags are ready. Press
+                Send to re-run, then compare in Observability.
+              </p>
+            )}
             <div className="flex gap-2">
               <textarea
                 value={input}

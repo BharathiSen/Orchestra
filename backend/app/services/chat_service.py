@@ -7,9 +7,11 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.evaluation.tracker import ExecutionTracker, StepRecord
 from app.graph import build_agent_graph
 from app.memory.service import MemoryService
 from app.models import Agent, Conversation, Message, Project, User
+from app.observability import TraceService, TrackingLLM
 from app.orchestrator import OrchestraEngine
 from app.rag.service import RagService
 from app.repositories.chat_repository import ConversationRepository, MessageRepository
@@ -21,7 +23,6 @@ from app.services.llm_provider import (
     missing_provider_message,
 )
 from app.tools import ensure_default_tools
-
 TOOL_SYSTEM_ADDENDUM = (
     "\n\nYou have access to tools. Use them when they help answer accurately "
     "(math -> calculator, weather -> weather, project/AI concepts -> search). "
@@ -286,6 +287,13 @@ class ChatService:
         enable_orchestra = bool(payload.enable_orchestra)
         # Orchestra owns the multi-agent path; tools graph is separate.
         enable_tools = bool(payload.enable_tools) and not enable_orchestra
+        if enable_orchestra:
+            pipeline = "orchestra"  # refined to simple/full after route is known
+        elif enable_tools:
+            pipeline = "tools"
+        else:
+            pipeline = "direct"
+
         # Refresh long-term after auto-extract
         memory_ctx = self.memory.build_context(
             user_id=user.id,
@@ -309,8 +317,31 @@ class ChatService:
             if m.role in {"user", "assistant"} and m.content.strip()
         ]
 
-        llm = get_llm_service()
-        self.memory.llm = llm
+        # Day 9 — start execution trace before any LLM work
+        traces = TraceService(self.db)
+        tracker = ExecutionTracker(model_name=payload.model, pipeline=pipeline)
+        execution = traces.start(
+            user_id=user.id,
+            project_id=payload.project_id,
+            conversation_id=conversation.id,
+            agent_id=payload.agent_id or (agent.id if agent else None),
+            model_name=payload.model,
+            pipeline=pipeline,
+            prompt=payload.message,
+        )
+        yield _sse(
+            {
+                "type": "execution_meta",
+                "execution_id": execution.id,
+                "pipeline": pipeline,
+                "status": "running",
+            }
+        )
+
+        raw_llm = get_llm_service()
+        llm = TrackingLLM(raw_llm, tracker)
+        # Keep memory summarization off the chat execution's token ledger
+        self.memory.llm = raw_llm
         assistant_chunks: list[str] = []
         turn_trace: dict[str, Any] = {
             "orchestra_steps": [],
@@ -319,6 +350,7 @@ class ChatService:
             "tools": [],
             "route": None,
         }
+        open_steps: dict[str, StepRecord] = {}
         try:
             if enable_orchestra:
                 kb_ids: list[int] = []
@@ -354,6 +386,16 @@ class ChatService:
                 for event in engine.run(initial_state):
                     evt_type = event.get("type")
                     if evt_type == "orchestra_step":
+                        agent_name = str(event.get("agent") or "agent")
+                        status_name = str(event.get("status") or "done")
+                        if status_name == "running":
+                            open_steps[agent_name] = tracker.start_step(agent_name)
+                        elif agent_name in open_steps:
+                            tracker.end_step(
+                                open_steps.pop(agent_name),
+                                status="error" if status_name == "error" else "done",
+                                detail={"summary": event.get("summary")},
+                            )
                         turn_trace["orchestra_steps"].append(
                             {
                                 "agent": event.get("agent"),
@@ -364,6 +406,12 @@ class ChatService:
                         )
                         if event.get("route"):
                             turn_trace["route"] = event.get("route")
+                            route = str(event.get("route"))
+                            tracker.pipeline = (
+                                f"orchestra_{route}"
+                                if route in {"simple", "full"}
+                                else "orchestra"
+                            )
                         yield _sse(event)
                     elif evt_type == "retrieved_context":
                         turn_trace["retrieved_chunks"] = event.get("chunks") or []
@@ -399,6 +447,7 @@ class ChatService:
                 retrieved_chunks: list[dict[str, Any]] = []
                 if agent and getattr(agent, "knowledge_bases", None):
                     kb_ids = [kb.id for kb in agent.knowledge_bases]
+                    retrieve_step = tracker.start_step("retrieve")
                     chunks = self.rag.retrieve_chunks_for_question(
                         question=payload.message,
                         knowledge_base_ids=kb_ids,
@@ -419,12 +468,18 @@ class ChatService:
                             }
                         )
                         turn_trace["retrieved_chunks"] = retrieved_chunks
+                    tracker.end_step(
+                        retrieve_step,
+                        status="done",
+                        detail={"chunks": len(retrieved_chunks)},
+                    )
 
                 openai_tools = self.tools.openai_tools()
                 final_answer = ""
                 node_order = ["planner", "tool", "reviewer", "answer"]
                 current_node_idx = 0
                 yield _sse({"type": "graph_step", "node": node_order[0], "status": "running"})
+                open_steps[node_order[0]] = tracker.start_step(node_order[0])
 
                 graph = build_agent_graph(llm=llm, registry=self.tools)
                 initial_state = {
@@ -443,23 +498,34 @@ class ChatService:
                             current_node_idx < len(node_order)
                             and node_order[current_node_idx] != node_name
                         ):
+                            skipped = node_order[current_node_idx]
+                            if skipped in open_steps:
+                                tracker.end_step(open_steps.pop(skipped), status="done")
                             yield _sse(
                                 {
                                     "type": "graph_step",
-                                    "node": node_order[current_node_idx],
+                                    "node": skipped,
                                     "status": "done",
                                 }
                             )
                             current_node_idx += 1
                             if current_node_idx < len(node_order):
+                                nxt = node_order[current_node_idx]
+                                open_steps[nxt] = tracker.start_step(nxt)
                                 yield _sse(
                                     {
                                         "type": "graph_step",
-                                        "node": node_order[current_node_idx],
+                                        "node": nxt,
                                         "status": "running",
                                     }
                                 )
 
+                        if node_name in open_steps:
+                            tracker.end_step(
+                                open_steps.pop(node_name),
+                                status="done",
+                                detail={"summary": summary},
+                            )
                         yield _sse(
                             {
                                 "type": "graph_step",
@@ -477,10 +543,12 @@ class ChatService:
                         )
                         current_node_idx += 1
                         if current_node_idx < len(node_order):
+                            nxt = node_order[current_node_idx]
+                            open_steps[nxt] = tracker.start_step(nxt)
                             yield _sse(
                                 {
                                     "type": "graph_step",
-                                    "node": node_order[current_node_idx],
+                                    "node": nxt,
                                     "status": "running",
                                 }
                             )
@@ -491,6 +559,10 @@ class ChatService:
 
                         if node_payload.get("final_answer"):
                             final_answer = str(node_payload["final_answer"])
+
+                for leftover in list(open_steps.values()):
+                    tracker.end_step(leftover, status="done")
+                open_steps.clear()
 
                 if not final_answer:
                     final_answer = "(No content returned by the graph answer node.)"
@@ -506,6 +578,7 @@ class ChatService:
                 )
                 if agent and getattr(agent, "knowledge_bases", None):
                     kb_ids = [kb.id for kb in agent.knowledge_bases]
+                    retrieve_step = tracker.start_step("retrieve")
                     chunks = self.rag.retrieve_chunks_for_question(
                         question=payload.message,
                         knowledge_base_ids=kb_ids,
@@ -526,7 +599,15 @@ class ChatService:
                             }
                         )
                         turn_trace["retrieved_chunks"] = retrieved_chunks
+                        tracker.end_step(
+                            retrieve_step,
+                            status="done",
+                            detail={"chunks": len(retrieved_chunks)},
+                        )
+                    else:
+                        tracker.end_step(retrieve_step, status="done", detail={"chunks": 0})
 
+                generate_step = tracker.start_step("generate")
                 for token in llm.stream_chat_completion(
                     messages=llm_messages,
                     model=payload.model,
@@ -534,14 +615,43 @@ class ChatService:
                 ):
                     assistant_chunks.append(token)
                     yield _sse({"type": "token", "content": token})
+                tracker.end_step(generate_step, status="done")
         except HTTPException as exc:
             detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
+            for leftover in list(open_steps.values()):
+                tracker.end_step(leftover, status="error")
+            open_steps.clear()
+            traces.complete(
+                execution,
+                tracker=tracker,
+                final_response="",
+                status="error",
+                error_detail=detail,
+                snapshot={
+                    "system_prompt": base_system_prompt,
+                    **{k: v for k, v in turn_trace.items() if v not in (None, [], {})},
+                },
+            )
             yield _sse({"type": "error", "detail": detail})
             return
         except Exception as exc:  # noqa: BLE001
-            yield _sse({"type": "error", "detail": f"Chat pipeline error: {exc}"})
+            detail = f"Chat pipeline error: {exc}"
+            for leftover in list(open_steps.values()):
+                tracker.end_step(leftover, status="error")
+            open_steps.clear()
+            traces.complete(
+                execution,
+                tracker=tracker,
+                final_response="",
+                status="error",
+                error_detail=detail,
+                snapshot={
+                    "system_prompt": base_system_prompt,
+                    **{k: v for k, v in turn_trace.items() if v not in (None, [], {})},
+                },
+            )
+            yield _sse({"type": "error", "detail": detail})
             return
-
         full_reply = "".join(assistant_chunks).strip()
         if not full_reply:
             full_reply = "(No content returned by the model.)"
@@ -564,6 +674,23 @@ class ChatService:
         conversation.updated_at = datetime.now(UTC)
         self.db.add(conversation)
         self.db.commit()
+
+        tracker.update_snapshot(
+            system_prompt=base_system_prompt,
+            retrieved_chunks=turn_trace.get("retrieved_chunks") or [],
+            tool_calls=turn_trace.get("tools") or [],
+            orchestra_steps=turn_trace.get("orchestra_steps") or [],
+            graph_steps=turn_trace.get("graph_steps") or [],
+            route=turn_trace.get("route"),
+        )
+        traces.complete(
+            execution,
+            tracker=tracker,
+            final_response=full_reply,
+            message_id=assistant_message.id,
+            status="completed",
+            snapshot=tracker.snapshot,
+        )
 
         # Day 8 — persist turn into Redis short-term memory (+ summarize overflow)
         self.memory.remember_turn(
@@ -596,9 +723,12 @@ class ChatService:
                 "type": "done",
                 "message_id": assistant_message.id,
                 "conversation_id": conversation.id,
+                "execution_id": execution.id,
+                "latency_ms": execution.latency_ms,
+                "total_tokens": execution.total_tokens,
+                "total_cost_usd": float(execution.total_cost_usd or 0),
             }
         )
-
     def _build_llm_messages(
         self,
         *,
