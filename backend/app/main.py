@@ -15,9 +15,13 @@ from app import models  # noqa: F401
 async def lifespan(_: FastAPI):
     with engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        # create_all does not add new columns to existing tables
-        conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS trace JSON"))
+    # Fresh DBs (e.g. Neon) have no tables yet — create first, then backfill columns.
     Base.metadata.create_all(bind=engine)
+    with engine.begin() as conn:
+        # create_all does not add new columns to existing tables
+        conn.execute(
+            text("ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS trace JSON")
+        )
     redis = get_redis()
     try:
         redis.ping()
