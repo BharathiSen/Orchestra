@@ -132,6 +132,7 @@ class ChatService:
         agent: Agent | None,
         enable_tools: bool,
         long_term_block: str = "",
+        summary_block: str = "",
     ) -> str:
         if payload.system_prompt and payload.system_prompt.strip():
             base = payload.system_prompt.strip()
@@ -139,8 +140,13 @@ class ChatService:
             base = agent.system_prompt.strip()
         else:
             base = settings.default_system_prompt
+        extras: list[str] = []
+        if summary_block:
+            extras.append(summary_block)
         if long_term_block:
-            base = f"{base}\n\n{long_term_block}"
+            extras.append(long_term_block)
+        if extras:
+            base = f"{base}\n\n" + "\n\n".join(extras)
         if enable_tools:
             return base + TOOL_SYSTEM_ADDENDUM
         return base
@@ -225,10 +231,40 @@ class ChatService:
                 "conversation_id": conversation.id,
                 "memory_size": memory_ctx.memory_size,
                 "buffer_limit": memory_ctx.buffer_limit,
-                "memory_used": memory_ctx.memory_size > 0,
+                "memory_used": memory_ctx.memory_size > 0
+                or bool(memory_ctx.conversation_summary),
                 "long_term_count": mem_status.long_term_count,
+                "has_summary": bool(memory_ctx.conversation_summary),
             }
         )
+
+        # Auto-extract durable facts from this user turn ("I prefer Python", etc.)
+        extracted = self.memory.auto_extract_and_store(
+            user_id=user.id,
+            text=payload.message,
+        )
+        if extracted:
+            mem_status = self.memory.get_status(
+                user_id=user.id,
+                conversation_id=conversation.id,
+            )
+            yield _sse(
+                {
+                    "type": "memory_status",
+                    "redis_connected": mem_status.redis_connected,
+                    "session_active": True,
+                    "conversation_id": conversation.id,
+                    "memory_size": memory_ctx.memory_size,
+                    "buffer_limit": memory_ctx.buffer_limit,
+                    "memory_used": True,
+                    "long_term_count": mem_status.long_term_count,
+                    "has_summary": bool(memory_ctx.conversation_summary),
+                    "extracted_facts": [
+                        {"category": f.category, "key": f.key, "value": f.value}
+                        for f in extracted
+                    ],
+                }
+            )
 
         # Persist user/assistant only (ADR-011). Tool activity is live SSE for the UI.
         user_message = self.messages.create(
@@ -250,12 +286,20 @@ class ChatService:
         enable_orchestra = bool(payload.enable_orchestra)
         # Orchestra owns the multi-agent path; tools graph is separate.
         enable_tools = bool(payload.enable_tools) and not enable_orchestra
+        # Refresh long-term after auto-extract
+        memory_ctx = self.memory.build_context(
+            user_id=user.id,
+            conversation_id=conversation.id,
+            postgres_fallback=postgres_fallback,
+        )
         long_term_block = self.memory.format_long_term_prompt(memory_ctx.long_term)
+        summary_block = self.memory.format_summary_prompt(memory_ctx.conversation_summary)
         base_system_prompt = self._resolve_system_prompt(
             payload=payload,
             agent=agent,
             enable_tools=enable_tools,
             long_term_block=long_term_block,
+            summary_block=summary_block,
         )
 
         # Build LLM history from Redis buffer (last N), not full Postgres dump
@@ -266,15 +310,22 @@ class ChatService:
         ]
 
         llm = get_llm_service()
+        self.memory.llm = llm
         assistant_chunks: list[str] = []
-
+        turn_trace: dict[str, Any] = {
+            "orchestra_steps": [],
+            "retrieved_chunks": [],
+            "graph_steps": [],
+            "tools": [],
+            "route": None,
+        }
         try:
             if enable_orchestra:
                 kb_ids: list[int] = []
                 if agent and getattr(agent, "knowledge_bases", None):
                     kb_ids = [kb.id for kb in agent.knowledge_bases]
 
-                engine = OrchestraEngine(llm=llm, rag=self.rag)
+                engine = OrchestraEngine(llm=llm, rag=self.rag, tools=self.tools)
                 initial_state = {
                     "question": payload.message,
                     "system_prompt": base_system_prompt,
@@ -286,6 +337,7 @@ class ChatService:
                         "short_term_size": memory_ctx.memory_size,
                         "long_term": memory_ctx.long_term,
                         "redis_connected": memory_ctx.redis_connected,
+                        "conversation_summary": memory_ctx.conversation_summary,
                     },
                     "retrieved_docs": [],
                     "current_agent": "",
@@ -302,11 +354,23 @@ class ChatService:
                 for event in engine.run(initial_state):
                     evt_type = event.get("type")
                     if evt_type == "orchestra_step":
+                        turn_trace["orchestra_steps"].append(
+                            {
+                                "agent": event.get("agent"),
+                                "status": event.get("status"),
+                                "summary": event.get("summary"),
+                                "route": event.get("route"),
+                            }
+                        )
+                        if event.get("route"):
+                            turn_trace["route"] = event.get("route")
                         yield _sse(event)
                     elif evt_type == "retrieved_context":
+                        turn_trace["retrieved_chunks"] = event.get("chunks") or []
                         yield _sse(event)
                     elif evt_type == "orchestra_result":
                         final_answer = str(event.get("final_response") or "")
+                        turn_trace["route"] = event.get("route") or turn_trace.get("route")
                         if event.get("review_notes"):
                             yield _sse(
                                 {
@@ -315,6 +379,7 @@ class ChatService:
                                     "status": "done",
                                     "summary": "Review notes ready.",
                                     "review_notes": event.get("review_notes"),
+                                    "route": event.get("route"),
                                 }
                             )
 
@@ -353,6 +418,7 @@ class ChatService:
                                 "chunks": retrieved_chunks,
                             }
                         )
+                        turn_trace["retrieved_chunks"] = retrieved_chunks
 
                 openai_tools = self.tools.openai_tools()
                 final_answer = ""
@@ -402,6 +468,13 @@ class ChatService:
                                 "summary": summary,
                             }
                         )
+                        turn_trace["graph_steps"].append(
+                            {
+                                "node": node_name,
+                                "status": "done",
+                                "summary": summary,
+                            }
+                        )
                         current_node_idx += 1
                         if current_node_idx < len(node_order):
                             yield _sse(
@@ -413,6 +486,7 @@ class ChatService:
                             )
 
                         for evt in node_payload.get("tool_events", []):
+                            turn_trace["tools"].append(evt)
                             yield _sse(evt)
 
                         if node_payload.get("final_answer"):
@@ -451,6 +525,7 @@ class ChatService:
                                 "chunks": retrieved_chunks,
                             }
                         )
+                        turn_trace["retrieved_chunks"] = retrieved_chunks
 
                 for token in llm.stream_chat_completion(
                     messages=llm_messages,
@@ -471,23 +546,32 @@ class ChatService:
         if not full_reply:
             full_reply = "(No content returned by the model.)"
 
+        # Drop empty trace lists so DB stays lean
+        cleaned_trace = {
+            key: value
+            for key, value in turn_trace.items()
+            if value not in (None, [], {})
+        } or None
+
         assistant_message = self.messages.create(
             Message(
                 conversation_id=conversation.id,
                 role="assistant",
                 content=full_reply,
+                trace=cleaned_trace,
             )
         )
         conversation.updated_at = datetime.now(UTC)
         self.db.add(conversation)
         self.db.commit()
 
-        # Day 8 — persist turn into Redis short-term memory
+        # Day 8 — persist turn into Redis short-term memory (+ summarize overflow)
         self.memory.remember_turn(
             conversation_id=conversation.id,
             user_id=user.id,
             user_content=payload.message,
             assistant_content=full_reply,
+            model=payload.model,
         )
         updated_status = self.memory.get_status(
             user_id=user.id,
@@ -503,6 +587,7 @@ class ChatService:
                 "buffer_limit": updated_status.buffer_limit,
                 "memory_used": updated_status.memory_used,
                 "long_term_count": updated_status.long_term_count,
+                "has_summary": updated_status.has_summary,
             }
         )
 

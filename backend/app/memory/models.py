@@ -58,6 +58,7 @@ class MemoryStatus(BaseModel):
     buffer_limit: int = 10
     memory_used: bool = False
     long_term_count: int = 0
+    has_summary: bool = False
 
 
 class UserMemoryItem(BaseModel):
@@ -91,6 +92,17 @@ class MemoryContext(BaseModel):
 
     short_term: list[MemoryMessage] = Field(default_factory=list)
     long_term: list[dict[str, Any]] = Field(default_factory=list)
+    conversation_summary: str | None = None
     redis_connected: bool = False
     memory_size: int = 0
     buffer_limit: int = 10
+
+
+class ConversationMemoryDump(BaseModel):
+    conversation_id: int
+    buffer_limit: int
+    memory_size: int
+    summary: str | None = None
+    messages: list[MemoryMessage]
+    long_term: list[UserMemoryItem] = Field(default_factory=list)
+    redis_connected: bool = False

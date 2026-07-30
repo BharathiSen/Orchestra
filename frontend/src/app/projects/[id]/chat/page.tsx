@@ -140,13 +140,13 @@ function OrchestraExecutionPanel({ steps }: { steps: OrchestraStepEvent[] }) {
     research: "Research",
     writer: "Writer",
     reviewer: "Reviewer",
+    fast_answer: "Fast Answer",
   };
-  const ordered: OrchestraAgentName[] = [
-    "planner",
-    "research",
-    "writer",
-    "reviewer",
-  ];
+  const route = steps.find((s) => s.route)?.route;
+  const ordered: OrchestraAgentName[] =
+    route === "simple"
+      ? ["planner", "research", "fast_answer"]
+      : ["planner", "research", "writer", "reviewer"];
   const latest = new Map<OrchestraAgentName, OrchestraStepEvent>();
   for (const step of steps) {
     latest.set(step.agent, step);
@@ -154,7 +154,9 @@ function OrchestraExecutionPanel({ steps }: { steps: OrchestraStepEvent[] }) {
 
   return (
     <div className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-2 text-xs text-slate-700">
-      <p className="mb-1.5 font-semibold text-indigo-950">Agent Execution</p>
+      <p className="mb-1.5 font-semibold text-indigo-950">
+        Agent Execution{route ? ` · ${route}` : ""}
+      </p>
       <div className="space-y-1.5">
         {ordered.map((agent, idx) => {
           const step = latest.get(agent);
@@ -190,7 +192,8 @@ function OrchestraExecutionPanel({ steps }: { steps: OrchestraStepEvent[] }) {
             </div>
           );
         })}
-        {latest.get("reviewer")?.status === "done" && (
+        {(latest.get("reviewer")?.status === "done" ||
+          latest.get("fast_answer")?.status === "done") && (
           <p className="pt-1 font-semibold text-teal-800">↓ Done</p>
         )}
       </div>
@@ -237,6 +240,10 @@ function MemoryPanel({
         </span>
         <span className="text-slate-500">Memory Used</span>
         <span className="font-medium">{status?.memory_used ? "✓ Yes" : "No"}</span>
+        <span className="text-slate-500">Summary</span>
+        <span className="font-medium">
+          {status?.has_summary ? "✓ Compressed" : "—"}
+        </span>
         <span className="text-slate-500">Long-term</span>
         <span className="font-medium">{status?.long_term_count ?? 0} facts</span>
       </div>
@@ -321,23 +328,37 @@ function attachExtrasToMessages(
   const lastAssistantIdx = filtered.map((x) => x.role).lastIndexOf("assistant");
   return filtered.map((m, idx) => {
     const isLastAssistant = m.role === "assistant" && idx === lastAssistantIdx;
+    const persisted = m.trace || null;
+    const retrieved =
+      (isLastAssistant && extras?.retrievedChunks?.length
+        ? extras.retrievedChunks
+        : undefined) ||
+      persisted?.retrieved_chunks ||
+      undefined;
+    const tools =
+      (isLastAssistant && extras?.tools?.length ? extras.tools : undefined) ||
+      persisted?.tools ||
+      undefined;
+    const graphSteps =
+      (isLastAssistant && extras?.graphSteps?.length
+        ? extras.graphSteps
+        : undefined) ||
+      persisted?.graph_steps ||
+      undefined;
+    const orchestraSteps =
+      (isLastAssistant && extras?.orchestraSteps?.length
+        ? extras.orchestraSteps
+        : undefined) ||
+      persisted?.orchestra_steps ||
+      undefined;
     return {
       id: String(m.id),
       role: m.role as "user" | "assistant",
       content: m.content,
-      retrievedChunks:
-        isLastAssistant && extras?.retrievedChunks?.length
-          ? extras.retrievedChunks
-          : undefined,
-      tools: isLastAssistant && extras?.tools?.length ? extras.tools : undefined,
-      graphSteps:
-        isLastAssistant && extras?.graphSteps?.length
-          ? extras.graphSteps
-          : undefined,
-      orchestraSteps:
-        isLastAssistant && extras?.orchestraSteps?.length
-          ? extras.orchestraSteps
-          : undefined,
+      retrievedChunks: retrieved?.length ? retrieved : undefined,
+      tools: tools?.length ? tools : undefined,
+      graphSteps: graphSteps?.length ? graphSteps : undefined,
+      orchestraSteps: orchestraSteps?.length ? orchestraSteps : undefined,
     };
   });
 }

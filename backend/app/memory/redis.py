@@ -15,15 +15,17 @@ from app.memory.models import MemoryMessage
 
 
 class RedisConversationStore:
-    """Stores a rolling conversation buffer in Redis lists.
+    """Stores a rolling conversation buffer + optional compressed summary.
 
     Keys
     ----
     orchestra:conv:{conversation_id}:messages  — JSON list (capped)
+    orchestra:conv:{conversation_id}:summary   — compressed older turns
     orchestra:session:{user_id}                — last activity metadata
     """
 
     CONV_KEY = "orchestra:conv:{conversation_id}:messages"
+    SUMMARY_KEY = "orchestra:conv:{conversation_id}:summary"
     SESSION_KEY = "orchestra:session:{user_id}"
 
     def __init__(
@@ -51,6 +53,9 @@ class RedisConversationStore:
 
     def _conv_key(self, conversation_id: int) -> str:
         return self.CONV_KEY.format(conversation_id=conversation_id)
+
+    def _summary_key(self, conversation_id: int) -> str:
+        return self.SUMMARY_KEY.format(conversation_id=conversation_id)
 
     def _session_key(self, user_id: int) -> str:
         return self.SESSION_KEY.format(user_id=user_id)
@@ -87,9 +92,22 @@ class RedisConversationStore:
             ),
             ex=self.ttl_seconds,
         )
-        results = pipe.execute()
-        # rpush returns new length before trim; re-read length for accuracy
+        pipe.execute()
         return int(self.client.llen(key))
+
+    def peek_overflow(
+        self,
+        conversation_id: int,
+        *,
+        incoming: int = 2,
+    ) -> list[MemoryMessage]:
+        """Return messages that will fall out of the buffer after `incoming` appends."""
+        current = self.get_messages(conversation_id)
+        projected = len(current) + incoming
+        if projected <= self.buffer_limit:
+            return []
+        drop = projected - self.buffer_limit
+        return current[:drop]
 
     def get_messages(self, conversation_id: int) -> list[MemoryMessage]:
         raw = self.client.lrange(self._conv_key(conversation_id), 0, -1)
@@ -108,6 +126,26 @@ class RedisConversationStore:
                 continue
         return messages
 
+    def get_summary(self, conversation_id: int) -> str | None:
+        try:
+            value = self.client.get(self._summary_key(conversation_id))
+            return str(value) if value else None
+        except RedisError:
+            return None
+
+    def set_summary(self, conversation_id: int, summary: str) -> None:
+        text = (summary or "").strip()
+        if not text:
+            return
+        try:
+            self.client.set(
+                self._summary_key(conversation_id),
+                text[:4000],
+                ex=self.ttl_seconds,
+            )
+        except RedisError:
+            return
+
     def memory_size(self, conversation_id: int) -> int:
         try:
             return int(self.client.llen(self._conv_key(conversation_id)))
@@ -122,9 +160,21 @@ class RedisConversationStore:
 
     def clear_conversation(self, conversation_id: int) -> None:
         try:
-            self.client.delete(self._conv_key(conversation_id))
+            self.client.delete(
+                self._conv_key(conversation_id),
+                self._summary_key(conversation_id),
+            )
         except RedisError:
             pass
+
+    def dump_conversation(self, conversation_id: int) -> dict[str, Any]:
+        return {
+            "conversation_id": conversation_id,
+            "buffer_limit": self.buffer_limit,
+            "memory_size": self.memory_size(conversation_id),
+            "summary": self.get_summary(conversation_id),
+            "messages": [m.model_dump() for m in self.get_messages(conversation_id)],
+        }
 
     def sync_from_history(
         self,
@@ -136,6 +186,7 @@ class RedisConversationStore:
         """Replace Redis buffer with the last N history messages (Postgres sync)."""
         key = self._conv_key(conversation_id)
         recent = history[-self.buffer_limit :]
+        overflow = history[: -self.buffer_limit] if len(history) > self.buffer_limit else []
         pipe = self.client.pipeline()
         pipe.delete(key)
         for msg in recent:
@@ -164,4 +215,13 @@ class RedisConversationStore:
             ex=self.ttl_seconds,
         )
         pipe.execute()
+        if overflow:
+            lines = [
+                f"{m.get('role')}: {str(m.get('content') or '')[:200]}"
+                for m in overflow[-20:]
+            ]
+            self.set_summary(
+                conversation_id,
+                "Earlier conversation summary:\n" + "\n".join(lines),
+            )
         return len(recent)

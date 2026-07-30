@@ -15,6 +15,7 @@ class OrchestraState(TypedDict, total=False):
     model: str
     temperature: float
     knowledge_base_ids: list[int]
+    route: str  # "simple" | "full"
 
     # Shared memory context
     messages: list[dict[str, Any]]  # conversation buffer for LLM

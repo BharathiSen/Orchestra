@@ -42,6 +42,13 @@ export type ChatMessage = {
   role: string;
   content: string;
   created_at: string;
+  trace?: {
+    orchestra_steps?: OrchestraStepEvent[];
+    retrieved_chunks?: RetrievedChunk[];
+    graph_steps?: GraphStepEvent[];
+    tools?: ToolEvent[];
+    route?: string | null;
+  } | null;
 };
 
 export type ChatModel = {
@@ -173,13 +180,19 @@ export type GraphStepEvent = {
   summary?: string;
 };
 
-export type OrchestraAgentName = "planner" | "research" | "writer" | "reviewer";
+export type OrchestraAgentName =
+  | "planner"
+  | "research"
+  | "writer"
+  | "reviewer"
+  | "fast_answer";
 
 export type OrchestraStepEvent = {
   agent: OrchestraAgentName;
   status: "running" | "done" | "error";
   summary?: string;
   review_notes?: string;
+  route?: string;
 };
 
 export type MemoryStatus = {
@@ -190,6 +203,17 @@ export type MemoryStatus = {
   buffer_limit: number;
   memory_used: boolean;
   long_term_count: number;
+  has_summary?: boolean;
+};
+
+export type ConversationMemoryDump = {
+  conversation_id: number;
+  buffer_limit: number;
+  memory_size: number;
+  summary: string | null;
+  messages: { role: string; content: string; created_at?: string | null }[];
+  long_term: UserMemoryItem[];
+  redis_connected: boolean;
 };
 
 export type UserMemoryItem = {
@@ -322,6 +346,9 @@ export async function streamChat(
             buffer_limit: event.buffer_limit || 10,
             memory_used: Boolean(event.memory_used),
             long_term_count: event.long_term_count || 0,
+            has_summary: Boolean(
+              (event as { has_summary?: boolean }).has_summary,
+            ),
           });
         } else if (event.type === "user_message" && event.id != null) {
           handlers.onUserMessage?.({
@@ -568,6 +595,12 @@ export const api = {
       conversationId != null ? `?conversation_id=${conversationId}` : "";
     return request<MemoryStatus>(`/api/v1/memory/status${q}`, {}, token);
   },
+  inspectConversationMemory: (token: string, conversationId: number) =>
+    request<ConversationMemoryDump>(
+      `/api/v1/memory/conversations/${conversationId}`,
+      {},
+      token,
+    ),
   listPreferences: (token: string) =>
     request<{ items: UserMemoryItem[]; count: number }>(
       "/api/v1/memory/preferences",

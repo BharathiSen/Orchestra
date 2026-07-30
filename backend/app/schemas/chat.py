@@ -36,6 +36,8 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     created_at: datetime
+    # Persisted Orchestra/RAG/tool extras for UI reload
+    trace: dict | None = None
 
 
 class ChatRequest(BaseModel):

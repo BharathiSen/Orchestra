@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.memory.facts import extract_facts
 from app.memory.models import (
+    ConversationMemoryDump,
     MemoryContext,
     MemoryMessage,
     MemoryStatus,
@@ -16,13 +19,18 @@ from app.memory.models import (
     UserMemoryItem,
 )
 from app.memory.redis import RedisConversationStore
-from redis.exceptions import RedisError
 
 
 class MemoryService:
-    def __init__(self, db: Session, store: RedisConversationStore | None = None) -> None:
+    def __init__(
+        self,
+        db: Session,
+        store: RedisConversationStore | None = None,
+        llm: Any | None = None,
+    ) -> None:
         self.db = db
         self.store = store or RedisConversationStore()
+        self.llm = llm
         self.buffer_limit = settings.memory_buffer_size
 
     def redis_connected(self) -> bool:
@@ -36,9 +44,11 @@ class MemoryService:
     ) -> MemoryStatus:
         connected = self.redis_connected()
         size = 0
+        has_summary = False
         if connected and conversation_id is not None:
             try:
                 size = self.store.memory_size(conversation_id)
+                has_summary = bool(self.store.get_summary(conversation_id))
             except RedisError:
                 connected = False
         session = False
@@ -54,8 +64,40 @@ class MemoryService:
             conversation_id=conversation_id,
             memory_size=size,
             buffer_limit=self.buffer_limit,
-            memory_used=connected and size > 0,
+            memory_used=connected and (size > 0 or has_summary),
             long_term_count=len(long_term),
+            has_summary=has_summary,
+        )
+
+    def inspect_conversation(
+        self,
+        *,
+        user_id: int,
+        conversation_id: int,
+    ) -> ConversationMemoryDump:
+        connected = self.redis_connected()
+        dump = (
+            self.store.dump_conversation(conversation_id)
+            if connected
+            else {
+                "conversation_id": conversation_id,
+                "buffer_limit": self.buffer_limit,
+                "memory_size": 0,
+                "summary": None,
+                "messages": [],
+            }
+        )
+        return ConversationMemoryDump(
+            conversation_id=conversation_id,
+            buffer_limit=int(dump.get("buffer_limit") or self.buffer_limit),
+            memory_size=int(dump.get("memory_size") or 0),
+            summary=dump.get("summary"),
+            messages=[
+                MemoryMessage.model_validate(m) if not isinstance(m, MemoryMessage) else m
+                for m in (dump.get("messages") or [])
+            ],
+            long_term=self.list_long_term(user_id=user_id),
+            redis_connected=connected,
         )
 
     def load_conversation_buffer(
@@ -101,10 +143,18 @@ class MemoryService:
         user_id: int,
         user_content: str,
         assistant_content: str,
+        model: str | None = None,
     ) -> None:
         try:
             if not self.store.ping():
                 return
+            overflow = self.store.peek_overflow(conversation_id, incoming=2)
+            if overflow:
+                self._compress_overflow(
+                    conversation_id=conversation_id,
+                    overflow=overflow,
+                    model=model or settings.groq_default_model,
+                )
             self.store.append_message(
                 conversation_id=conversation_id,
                 user_id=user_id,
@@ -120,6 +170,54 @@ class MemoryService:
         except RedisError:
             return
 
+    def _compress_overflow(
+        self,
+        *,
+        conversation_id: int,
+        overflow: list[MemoryMessage],
+        model: str,
+    ) -> None:
+        existing = self.store.get_summary(conversation_id) or ""
+        lines = [f"{m.role}: {m.content[:240]}" for m in overflow if m.content.strip()]
+        if not lines:
+            return
+        blob = "\n".join(lines)
+        summary = ""
+        if self.llm is not None:
+            try:
+                result = self.llm.complete_chat(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Compress the conversation excerpt into 3-6 bullet points. "
+                                "Keep names, preferences, and decisions. No preamble."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Existing summary:\n{existing or '(none)'}\n\n"
+                                f"Overflow turns:\n{blob}"
+                            ),
+                        },
+                    ],
+                    model=model,
+                    temperature=0.1,
+                    tools=None,
+                    tool_choice=None,
+                )
+                summary = (result.content or "").strip()
+            except Exception:  # noqa: BLE001
+                summary = ""
+        if not summary:
+            summary = (
+                (existing + "\n" if existing else "")
+                + "Earlier turns:\n"
+                + blob
+            )
+        self.store.set_summary(conversation_id, summary.strip()[:4000])
+
     def build_context(
         self,
         *,
@@ -133,6 +231,12 @@ class MemoryService:
             user_id=user_id,
             postgres_fallback=postgres_fallback,
         )
+        summary = None
+        if connected:
+            try:
+                summary = self.store.get_summary(conversation_id)
+            except RedisError:
+                summary = None
         long_term_rows = self.list_long_term(user_id=user_id)
         long_term = [
             {"category": r.category, "key": r.key, "value": r.value}
@@ -141,6 +245,7 @@ class MemoryService:
         return MemoryContext(
             short_term=short_term,
             long_term=long_term,
+            conversation_summary=summary,
             redis_connected=connected,
             memory_size=len(short_term),
             buffer_limit=self.buffer_limit,
@@ -153,6 +258,24 @@ class MemoryService:
         for item in long_term:
             lines.append(f"- [{item.get('category')}] {item.get('key')}: {item.get('value')}")
         return "\n".join(lines)
+
+    def format_summary_prompt(self, summary: str | None) -> str:
+        if not summary or not summary.strip():
+            return ""
+        return f"Compressed earlier conversation:\n{summary.strip()}"
+
+    def auto_extract_and_store(self, *, user_id: int, text: str) -> list[UserMemoryItem]:
+        saved: list[UserMemoryItem] = []
+        for fact in extract_facts(text):
+            saved.append(
+                self.upsert_long_term(
+                    user_id=user_id,
+                    category=fact.category,
+                    key=fact.key,
+                    value=fact.value,
+                )
+            )
+        return saved
 
     # ----- Long-term (Postgres) -----
 

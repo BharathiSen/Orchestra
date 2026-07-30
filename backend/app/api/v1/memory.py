@@ -1,4 +1,4 @@
-"""Memory API — status + long-term user preferences."""
+"""Memory API — status, inspector, long-term preferences."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.memory.models import (
+    ConversationMemoryDump,
     MemoryStatus,
     UserMemoryItem,
     UserMemoryListResponse,
@@ -20,6 +21,16 @@ from app.repositories.chat_repository import ConversationRepository
 router = APIRouter(prefix="/memory", tags=["memory"])
 
 
+def _owned_conversation(db: Session, *, conversation_id: int, user: User):
+    conversation = ConversationRepository(db).get(conversation_id)
+    if conversation is None or conversation.project.owner_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+    return conversation
+
+
 @router.get("/status", response_model=MemoryStatus)
 def memory_status(
     conversation_id: int | None = Query(default=None),
@@ -27,13 +38,22 @@ def memory_status(
     current_user: User = Depends(get_current_user),
 ) -> MemoryStatus:
     if conversation_id is not None:
-        conversation = ConversationRepository(db).get(conversation_id)
-        if conversation is None or conversation.project.owner_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Conversation not found",
-            )
+        _owned_conversation(db, conversation_id=conversation_id, user=current_user)
     return MemoryService(db).get_status(
+        user_id=current_user.id,
+        conversation_id=conversation_id,
+    )
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationMemoryDump)
+def inspect_conversation_memory(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ConversationMemoryDump:
+    """Dump Redis conversation buffer + summary for debugging."""
+    _owned_conversation(db, conversation_id=conversation_id, user=current_user)
+    return MemoryService(db).inspect_conversation(
         user_id=current_user.id,
         conversation_id=conversation_id,
     )

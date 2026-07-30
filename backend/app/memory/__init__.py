@@ -1,4 +1,10 @@
-from app.memory.models import MemoryContext, MemoryStatus, UserMemory
-from app.memory.service import MemoryService
+"""Memory package — import submodules directly to avoid eager DB engine creation."""
 
-__all__ = ["MemoryService", "MemoryContext", "MemoryStatus", "UserMemory"]
+from __future__ import annotations
+
+__all__ = [
+    "MemoryService",
+    "MemoryContext",
+    "MemoryStatus",
+    "UserMemory",
+]
