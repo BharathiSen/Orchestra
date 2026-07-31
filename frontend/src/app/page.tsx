@@ -32,15 +32,6 @@ const FEATURES = [
   },
 ] as const;
 
-const TECH = [
-  "FastAPI",
-  "Next.js",
-  "LangGraph",
-  "Redis",
-  "Postgres + pgvector",
-  "Docker",
-] as const;
-
 export default function LandingPage() {
   const [ctaHref, setCtaHref] = useState("/login");
 
@@ -98,49 +89,6 @@ export default function LandingPage() {
                 <p className="mt-2 text-sm leading-relaxed text-slate-600">
                   {feature.body}
                 </p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      <section className="border-t border-slate-200/80 px-6 py-16">
-        <div className="mx-auto max-w-5xl">
-          <h2 className="font-display text-2xl font-bold">Architecture</h2>
-          <p className="mt-2 max-w-xl text-slate-600">
-            Vectors live in Postgres via pgvector — no separate Qdrant service.
-          </p>
-          <pre className="mt-8 overflow-x-auto rounded-lg border border-slate-200 bg-white/70 p-5 font-mono text-xs leading-relaxed text-slate-700 sm:text-sm">
-{`                Next.js Frontend
-                       │
-                      REST / SSE
-                       │
-                FastAPI Backend
-                       │
-     ┌─────────────────┼─────────────────┐
-     │                 │                 │
- PostgreSQL         Redis           LangGraph
- + pgvector      (memory)         Orchestrator
-     │                                   │
- embeddings                      Planner → Research
- chunks                          → Writer → Reviewer
-                                       │
-                                  LLM Providers
-                               (Groq / Gemini / Ollama)`}
-          </pre>
-        </div>
-      </section>
-
-      <section className="border-t border-slate-200/80 px-6 py-16">
-        <div className="mx-auto max-w-5xl">
-          <h2 className="font-display text-2xl font-bold">Tech stack</h2>
-          <ul className="mt-8 flex flex-wrap gap-x-8 gap-y-3">
-            {TECH.map((item) => (
-              <li
-                key={item}
-                className="font-display text-base font-semibold text-ink"
-              >
-                {item}
               </li>
             ))}
           </ul>
