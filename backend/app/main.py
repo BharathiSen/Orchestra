@@ -43,6 +43,17 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 
+@app.get("/")
+def root() -> dict[str, str]:
+    return {
+        "name": settings.app_name,
+        "status": "ok",
+        "health": "/health",
+        "docs": "/docs",
+        "api": settings.api_v1_prefix,
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
