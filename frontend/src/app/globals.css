@@ -127,6 +127,106 @@ body {
     rgba(255, 255, 255, 0.4);
 }
 
+.studio-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  background: rgba(15, 118, 110, 0.08);
+  padding: 0.3rem 0.7rem;
+  font-family: var(--font-space), sans-serif;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--studio-teal);
+}
+
+@property --border-angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0deg;
+}
+
+@keyframes border-spin {
+  to {
+    --border-angle: 360deg;
+  }
+}
+
+.studio-shimmer-card {
+  list-style: none;
+  border: 1.5px solid transparent;
+  border-radius: 1rem;
+  background:
+    linear-gradient(#faf9f6, #faf9f6) padding-box,
+    conic-gradient(
+      from var(--border-angle),
+      rgba(15, 118, 110, 0.12) 75%,
+      #0f766e 84%,
+      #5eead4 90%,
+      #0d9488 94%,
+      rgba(15, 118, 110, 0.12)
+    )
+    border-box;
+  animation: border-spin 7s linear infinite;
+}
+
+.studio-shimmer-inner {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  border-radius: calc(1rem - 1.5px);
+  background: rgba(250, 249, 246, 0.96);
+  padding: 1.35rem 1.25rem 1.5rem;
+}
+
+.studio-shimmer-num {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.9rem;
+  font-family: var(--font-space), sans-serif;
+  font-size: 3.25rem;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(15, 118, 110, 0.1);
+  pointer-events: none;
+}
+
+.studio-shimmer-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--studio-teal);
+}
+
+.studio-cap-tile {
+  list-style: none;
+  border: 1px solid var(--studio-line);
+  background: rgba(255, 255, 255, 0.72);
+  padding: 1.25rem 1.2rem 1.4rem;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.studio-cap-tile:hover {
+  border-color: rgba(15, 118, 110, 0.45);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.studio-cap-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--studio-teal);
+}
+
 .studio-chrome {
   overflow: hidden;
   border: 1px solid var(--studio-line);
