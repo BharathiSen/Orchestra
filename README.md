@@ -183,4 +183,4 @@ Each chat turn creates an **Execution** with timed **ExecutionSteps**, token/cos
 - Metrics: today’s count, success rate, latency, tokens, cost, step averages
 - Replay: restore prompt + pipeline flags into Chat
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the Day 10 system diagram.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system diagram.
