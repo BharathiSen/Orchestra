@@ -28,41 +28,6 @@ Orchestra is a full-stack workspace for agent development: projects, agents, mul
 
 ---
 
-## Architecture
-
-![Orchestra architecture](docs/architecture.png)
-
-```text
-                Next.js Frontend
-                       │
-                      REST / SSE
-                       │
-                FastAPI Backend
-                       │
-     ┌─────────────────┼─────────────────┐
-     │                 │                 │
- PostgreSQL         Redis           LangGraph
- + pgvector      (memory)         Orchestrator
-     │                                   │
- embeddings                      Planner → Research
- chunks                          → Writer → Reviewer
-                                       │
-                                  LLM Providers
-```
-
-```mermaid
-flowchart TD
-  UI[Next.js] -->|REST / SSE| API[FastAPI]
-  API --> PG[(Postgres + pgvector)]
-  API --> RD[(Redis)]
-  API --> LG[LangGraph Orchestra]
-  LG --> LLM[Groq / Gemini / Ollama]
-  API --> Trace[Executions + Steps]
-  Trace --> PG
-```
-
----
-
 ## Tech Stack
 
 | Layer | Stack |
@@ -218,20 +183,4 @@ Each chat turn creates an **Execution** with timed **ExecutionSteps**, token/cos
 - Metrics: today’s count, success rate, latency, tokens, cost, step averages
 - Replay: restore prompt + pipeline flags into Chat
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the Day 10 system diagram.
-
----
-
-## Roadmap
-
-- [ ] Human-in-the-loop interrupts
-- [ ] Stronger evaluation (LLM-as-judge optional)
-- [ ] MCP tool packs
-- [ ] Workflow templates / marketplace
-- [ ] Guardrails and model routing policies
-
----
-
-## License
-
-MIT — see repository license file if present; otherwise treat as MIT for personal/portfolio use.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system diagram.
