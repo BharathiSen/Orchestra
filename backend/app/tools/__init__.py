@@ -3,7 +3,8 @@ from app.tools.registry import ToolRegistry, default_registry
 from app.tools.search import SearchTool
 from app.tools.weather import WeatherTool
 
-# Register built-in Day 4 tools once at import time.
+# Built-in tools are registered once at import time so the registry is ready
+# before the first request; register() rejects duplicates, hence the guard.
 _BUILTINS_REGISTERED = False
 
 

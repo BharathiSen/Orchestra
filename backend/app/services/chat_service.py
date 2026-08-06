@@ -211,7 +211,8 @@ class ChatService:
             if msg.role in {"user", "assistant"} and msg.content.strip()
         ]
 
-        # Day 8 — load Redis conversation buffer (+ long-term prefs)
+        # Load the Redis short-term buffer plus long-term facts. Postgres history
+        # is passed as a fallback so a cold or evicted Redis still yields context.
         memory_ctx = self.memory.build_context(
             user_id=user.id,
             conversation_id=conversation.id,
@@ -314,7 +315,8 @@ class ChatService:
             if m.role in {"user", "assistant"} and m.content.strip()
         ]
 
-        # Day 9 — start execution trace before any LLM work
+        # Open the execution trace before any LLM work so failures are still
+        # recorded with a row rather than vanishing.
         traces = TraceService(self.db)
         tracker = ExecutionTracker(model_name=payload.model, pipeline=pipeline)
         execution = traces.start(
@@ -435,7 +437,8 @@ class ChatService:
                     yield _sse({"type": "token", "content": token})
 
             elif enable_tools:
-                # Day 7-style RAG injection still applies on the tools path
+                # Knowledge-base grounding applies on the tools path too, not just
+                # the direct path — an agent with KBs retrieves either way.
                 llm_messages = self._build_llm_messages(
                     base_system_prompt=base_system_prompt,
                     buffer_messages=buffer_messages,
@@ -689,7 +692,8 @@ class ChatService:
             snapshot=tracker.snapshot,
         )
 
-        # Day 8 — persist turn into Redis short-term memory (+ summarize overflow)
+        # Persist the completed turn into short-term memory, summarizing any
+        # messages pushed out of the buffer.
         self.memory.remember_turn(
             conversation_id=conversation.id,
             user_id=user.id,

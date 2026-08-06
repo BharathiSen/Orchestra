@@ -1,4 +1,10 @@
-"""Day 9 — Execution observability models."""
+"""Execution observability models.
+
+One `Execution` row per chat turn, with an ordered list of timed `ExecutionStep`
+rows underneath it. Together they answer "what did this run cost, how long did
+each stage take, and what exactly was fed to the model?" — the data behind the
+observability UI and the replay feature.
+"""
 
 from __future__ import annotations
 

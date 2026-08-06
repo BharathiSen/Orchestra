@@ -1,81 +1,52 @@
 # Orchestra
 
-Production-inspired AI engineering platform for designing, running, evaluating, and debugging LangGraph-powered agents — with memory, RAG (Postgres + **pgvector**), and full execution observability.
+**An AI engineering platform for building agents you can actually debug.** Design multi-agent pipelines, ground them in your own documents, give them memory — then inspect every run down to the token, the cost, and the millisecond, and replay it.
 
 ![Status](https://img.shields.io/badge/status-active-success)
+![License](https://img.shields.io/badge/license-MIT-blue)
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
+![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688)
 ![Next.js](https://img.shields.io/badge/Next.js-15-black)
+![Postgres](https://img.shields.io/badge/Postgres-pgvector-336791)
+
+![Orchestra architecture](docs/architecture.png)
 
 ---
 
-## Overview
+## Why it exists
 
-Orchestra is a full-stack workspace for agent development: projects, agents, multi-agent pipelines, knowledge bases, Redis memory, and traced executions with replay. Vectors are stored in **PostgreSQL via pgvector** (not Qdrant).
+Most agent projects stop at "the LLM replied." The hard part starts after that: *why* did it reply that way, which documents did it actually retrieve, how much did that cost, which stage was slow, and does the answer get worse when you edit a prompt?
 
----
-
-## Features
-
-| Area | Capabilities |
-|------|----------------|
-| Platform | Auth, projects, agents, Docker, REST + SSE |
-| Agents | LangGraph tools graph + Orchestra multi-agent (Planner → Research → Writer → Reviewer) |
-| Memory | Redis short-term buffer + Postgres long-term preferences |
-| RAG | Upload PDF/DOCX/TXT → chunk → embed (fastembed) → pgvector retrieve |
-| Observability | Executions, steps, tokens, cost, latency, ratings, replay, search filters |
-| LLM | Groq / Gemini / Ollama via pluggable providers |
+Orchestra treats an agent run as a **first-class, inspectable object**. Every chat turn produces an `Execution` with timed steps, token counts, cost, retrieved chunks, and the exact prompt that was sent — persisted, searchable, and replayable.
 
 ---
 
-## Tech Stack
+## What it does
 
-| Layer | Stack |
-|-------|--------|
-| Frontend | Next.js, React, TypeScript, Tailwind CSS |
-| Backend | FastAPI, SQLAlchemy, Python 3.12 |
-| Data | PostgreSQL + **pgvector**, Redis |
-| AI | LangGraph, LangChain-style flows, fastembed |
-| Infra | Docker Compose (see also [DEPLOYMENT.md](docs/DEPLOYMENT.md)) |
+| Area | Capability |
+|------|------------|
+| **Multi-agent** | LangGraph pipeline — Planner → Research → Writer → Reviewer, with a fast-answer branch for simple questions |
+| **Tool calling** | Schema-driven tool registry with a safe AST calculator, live weather, and a built-in reference index |
+| **RAG** | Upload PDF/DOCX/TXT → extract → chunk → embed → retrieve from Postgres + pgvector |
+| **Memory** | Redis short-term conversation buffer + durable user facts in Postgres |
+| **Observability** | Per-step latency, tokens, and cost; searchable execution history; snapshot replay |
+| **Platform** | JWT auth, projects, agents, knowledge bases, SSE streaming, Docker Compose |
 
----
+### Two graphs, one endpoint
 
-## Folder Structure
+Orchestra runs two distinct LangGraph workflows behind the same chat API, selected per request:
 
-```text
-Orchestra/
-├── backend/          # FastAPI app, agents, RAG, observability
-├── frontend/         # Next.js UI
-├── database/         # init.sql (extensions + schema)
-├── docker/           # docker-compose.yml
-├── docs/             # Architecture, API, deployment
-└── README.md
-```
+- **Tools graph** — `planner → tool → reviewer → answer`. The planner decides whether a tool is warranted; the tool node executes against the registry.
+- **Orchestra pipeline** — `planner → research → writer → reviewer`, with a conditional edge that routes short factual questions to a `fast_answer` node instead, skipping two LLM calls.
+
+The routing decision, the agents that ran, and the ones that were skipped all appear live in the chat UI and are stored on the execution.
 
 ---
 
-## Screenshots
-
-Capture these locally after `docker compose up` and drop paths under `docs/screenshots/` when ready:
-
-| Screen | Suggested URL |
-|--------|----------------|
-| Landing | http://localhost:13000/ |
-| Login | http://localhost:13000/login |
-| Dashboard | http://localhost:13000/dashboard |
-| Chat | http://localhost:13000/projects/{id}/chat |
-| Knowledge | http://localhost:13000/projects/{id}/knowledge |
-| Execution History | http://localhost:13000/projects/{id}/observability |
-| Execution detail | http://localhost:13000/projects/{id}/executions/{executionId} |
-| API docs | http://localhost:18000/docs |
-
----
-
-## Quick start (Docker)
+## Quick start
 
 ```bash
-cp .env.example .env
-# Add GROQ_API_KEY or GEMINI_API_KEY
+cp .env.example .env        # add GROQ_API_KEY (free) or GEMINI_API_KEY
 cd docker
 docker compose --env-file ../.env up --build
 ```
@@ -86,28 +57,25 @@ docker compose --env-file ../.env up --build
 | API docs | http://localhost:18000/docs |
 | Health | http://localhost:18000/health |
 
-Default compose host ports (`FRONTEND_PORT` / `BACKEND_PORT`) avoid clashes with local 3000/8000 — see `.env.example`.
+Ports default to `13000`/`18000` so they don't collide with anything already on `3000`/`8000`. Change them with `FRONTEND_PORT` / `BACKEND_PORT`.
 
----
+Get a free Groq key at [console.groq.com/keys](https://console.groq.com/keys), or run fully offline with [Ollama](https://ollama.com) by setting `LLM_PROVIDER=ollama`.
 
-## Installation
+<details>
+<summary><b>Running without Docker</b></summary>
 
-### Prerequisites
-
-- Docker + Docker Compose, **or**
-- Node 20+, Python 3.12, Postgres with pgvector, Redis
-
-### Backend (local)
+**Backend** — needs Python 3.12, Postgres with pgvector, and Redis.
 
 ```bash
 cd backend
 python -m venv .venv
-# Windows: .venv\Scripts\activate
+.venv\Scripts\activate          # Windows
+source .venv/bin/activate       # macOS / Linux
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend (local)
+**Frontend** — needs Node 20+.
 
 ```bash
 cd frontend
@@ -115,72 +83,127 @@ npm install
 npm run dev
 ```
 
-Set `NEXT_PUBLIC_API_URL` to your API origin.
-
-Cloud deploy: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (Vercel + Railway/Render + Neon + Upstash).
+Point `NEXT_PUBLIC_API_URL` at your backend origin.
+</details>
 
 ---
 
-## Environment variables
+## Architecture
+
+```text
+                          Next.js frontend
+              landing · chat · knowledge · observability
+                                 │
+                         REST + SSE, JWT bearer
+                                 │
+                          FastAPI backend
+                                 │
+          ┌──────────────────────┼──────────────────────┐
+          │                      │                      │
+   Orchestra pipeline      Tools graph            RAG + memory
+   (multi-agent)           (LangGraph)            + tracing
+          │                      │                      │
+          └──────────┬───────────┴───────────┬──────────┘
+                     │                       │
+         Postgres + pgvector               Redis
+    users · agents · chunks+embeddings   short-term
+    executions · steps · memories        conversation buffer
+                     │
+           Groq · Gemini · Ollama
+```
+
+Vectors live in **Postgres via pgvector** — one database for relational data and embeddings, no separate vector store to operate.
+
+The backend is layered `API router → service → repository → model`. Routers stay thin; business rules and ownership checks live in services. Ownership is enforced everywhere: a resource is reachable only through a project whose `owner_id` matches the authenticated user.
+
+### Repository layout
+
+```text
+Orchestra/
+├── backend/app/
+│   ├── api/v1/          auth · projects · agents · chat · memory · observability
+│   ├── agents/          Planner · Research · Writer · Reviewer · FastAnswer
+│   ├── orchestrator/    OrchestraEngine, conditional routing, shared state
+│   ├── graph/           tools LangGraph (planner → tool → reviewer → answer)
+│   ├── prompts/         centralized system prompts, one module per role
+│   ├── tools/           registry + calculator, weather, reference index
+│   ├── knowledge/       upload → extract → chunk → embed → pgvector
+│   ├── rag/             retrieval and grounded prompt construction
+│   ├── memory/          Redis buffer + long-term fact extraction
+│   ├── observability/   ExecutionLogger · TraceBuilder · TrackingLLM
+│   ├── evaluation/      cost model, metrics, execution tracker, scorers
+│   ├── repositories/    data access
+│   ├── models/          SQLAlchemy ORM
+│   ├── schemas/         Pydantic request/response contracts
+│   └── services/        ChatService, pluggable LLM providers
+├── frontend/src/app/    landing · login · dashboard · projects · chat · KB · observability
+├── database/            init.sql (extensions)
+├── docker/              docker-compose.yml
+└── docs/                architecture diagram
+```
+
+---
+
+## Configuration
 
 | Variable | Used by | Notes |
-|----------|---------|--------|
-| `DATABASE_URL` | Backend | `postgresql+psycopg2://…` (pgvector-enabled DB) |
-| `REDIS_URL` | Backend | Short-term memory |
-| `JWT_SECRET` | Backend | Sign access tokens |
-| `CORS_ORIGINS` | Backend | Frontend origin(s) |
-| `LLM_PROVIDER` | Backend | `groq` \| `gemini` \| `ollama` |
-| `GROQ_API_KEY` | Backend | Free cloud testing |
-| `GEMINI_API_KEY` | Backend | Production Gemini |
-| `UPLOAD_DIR` | Backend | Knowledge uploads |
-| `NEXT_PUBLIC_API_URL` | Frontend | Public API base URL |
+|----------|---------|-------|
+| `DATABASE_URL` | Backend | `postgresql+psycopg2://…` on a pgvector-enabled database |
+| `REDIS_URL` | Backend | Short-term conversation memory |
+| `JWT_SECRET` | Backend | Access-token signing key — **change this before deploying** |
+| `CORS_ORIGINS` | Backend | Comma-separated frontend origins |
+| `LLM_PROVIDER` | Backend | `groq` · `gemini` · `ollama` |
+| `GROQ_API_KEY` | Backend | Free cloud inference |
+| `GEMINI_API_KEY` | Backend | Google Gemini |
+| `MEMORY_BUFFER_SIZE` | Backend | Turns kept before summarization (default 10) |
+| `UPLOAD_DIR` | Backend | Knowledge base upload directory |
+| `NEXT_PUBLIC_API_URL` | Frontend | Backend origin |
+| `NEXT_PUBLIC_SITE_URL` | Frontend | Public frontend origin, for canonical URLs and link previews |
 
-Full list: [.env.example](.env.example). **No Qdrant URL** — vectors are in Postgres.
+Complete list with comments: [.env.example](.env.example).
 
 ---
 
-## API summary
+## API
 
-Base: `/api/v1` · Auth: `Authorization: Bearer <token>` · Interactive: `/docs`
+Base path `/api/v1`. Authenticate with `Authorization: Bearer <token>`. Interactive docs at `/docs`.
 
 | Area | Endpoints |
 |------|-----------|
-| Auth | `POST /auth/signup`, `POST /auth/login`, `GET /auth/me` |
-| Projects / Agents | CRUD under `/projects`, `/agents` |
-| Chat | `POST /chat` (SSE), conversations + messages |
-| Knowledge | `/knowledge-bases`, documents, chunks |
-| Memory | `/memory/status`, preferences, conversation dump |
-| Dashboard | `/dashboard/summary`, `/dashboard/metrics` |
-| Executions | `GET /executions?project_id=&limit=&q=&status=&pipeline=` |
-| Detail / replay | `GET /executions/{id}`, `POST .../rating`, `POST .../replay` |
+| Auth | `POST /auth/signup` · `POST /auth/login` · `GET /auth/me` |
+| Projects & agents | CRUD under `/projects` and `/agents` |
+| Chat | `POST /chat` (SSE) · conversations · messages · `GET /chat/models` · `GET /tools` |
+| Knowledge | `/knowledge-bases` · document upload · chunks |
+| Memory | `/memory/status` · preferences · conversation dump |
+| Dashboard | `/dashboard/summary` · `/dashboard/metrics` |
+| Executions | `GET /executions?project_id=&q=&status=&pipeline=&limit=` |
+| Detail & replay | `GET /executions/{id}` · `POST /executions/{id}/rating` · `POST /executions/{id}/replay` |
 
-**Execution search** supports optional `q` (prompt/response/pipeline/model text), `status`, and `pipeline` in addition to `limit`.
+### Streaming events
 
----
+`POST /chat` returns `text/event-stream`. Event types:
 
-## Prompt Library
-
-Agent system prompts and Orchestra role prompts live under `backend/app/prompts/`:
-
-| Module | Role |
-|--------|------|
-| `system.py` | Shared system framing |
-| `planner.py` | Planning / routing |
-| `research.py` | Research agent |
-| `writer.py` | Drafting |
-| `reviewer.py` | Quality review |
-| `fast_answer.py` | Simple Q&A path |
-
-Edit these modules to tune multi-agent behavior without changing graph wiring.
+`meta` · `user_message` · `memory_status` · `execution_meta` · `retrieved_context` · `tool_start` · `tool_result` · `graph_step` · `orchestra_step` · `token` · `done` · `error`
 
 ---
 
-## Observability
+## Prompts
 
-Each chat turn creates an **Execution** with timed **ExecutionSteps**, token/cost aggregates, heuristic scores, and an optional snapshot for **replay**.
+Agent system prompts are centralized under `backend/app/prompts/`, one module per role — `planner`, `research`, `writer`, `reviewer`, `fast_answer`, and a shared `system` module for the tool addendum and defaults. Behavior can be tuned there without touching graph wiring.
 
-- UI: Project → **Observability** (Execution History) — search, filter, open detail
-- Metrics: today’s count, success rate, latency, tokens, cost, step averages
-- Replay: restore prompt + pipeline flags into Chat
+---
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system diagram.
+## Testing
+
+```bash
+cd backend
+pytest tests/
+```
+
+The suite uses a deterministic LLM stub, so it runs with no API keys and no network.
+
+---
+
+## License
+
+MIT.

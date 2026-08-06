@@ -39,7 +39,8 @@ class Settings(BaseSettings):
 
     upload_dir: str = "uploads"
 
-    # Day 8 — conversation buffer size (short-term Redis memory)
+    # How many recent turns the Redis short-term buffer keeps before older
+    # messages are compressed into a summary.
     memory_buffer_size: int = 10
 
     @property

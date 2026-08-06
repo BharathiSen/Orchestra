@@ -12,7 +12,12 @@ from app.services.llm_types import ChatCompletionResult
 
 
 class TrackingLLM:
-    """Delegates to a real LLM while capturing usage for Day 9 observability."""
+    """Delegates to a real LLM while capturing token usage and latency.
+
+    Wrapping the provider (rather than instrumenting each call site) means every
+    LLM invocation anywhere in the pipeline is measured, including calls made
+    from inside agent nodes that never see the tracker.
+    """
 
     def __init__(self, llm: Any, tracker: ExecutionTracker, *, step_prefix: str = "llm") -> None:
         self._llm = llm

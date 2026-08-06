@@ -4,7 +4,10 @@ from typing import Any
 
 from app.tools.base import BaseTool
 
-# Mock knowledge snippets — stand-in for a real search / RAG index (Days 6–7).
+# A small curated index describing Orchestra's own architecture. This is not a
+# web search: it answers "how does this platform work?" questions without an
+# external provider. User-supplied documents are served by the RAG pipeline
+# (app/rag/), which is a separate and far larger corpus.
 _KNOWLEDGE: list[dict[str, str]] = [
     {
         "title": "JWT Authentication",
@@ -36,7 +39,9 @@ _KNOWLEDGE: list[dict[str, str]] = [
         "title": "LangGraph",
         "snippet": (
             "LangGraph models agent workflows as graphs with nodes, edges, and state. "
-            "Orchestra Day 5 will use planner → tool → reviewer → answer patterns."
+            "Orchestra runs two graphs: a tools graph (planner → tool → reviewer → "
+            "answer) and the multi-agent Orchestra pipeline (planner → research → "
+            "writer → reviewer, with a fast-answer branch for simple questions)."
         ),
         "tags": "langgraph agents workflow planner",
     },
@@ -52,7 +57,7 @@ _KNOWLEDGE: list[dict[str, str]] = [
 
 
 class SearchTool(BaseTool):
-    """Mock search over Orchestra knowledge — replace later with real search/RAG."""
+    """Keyword search over a curated index of Orchestra's own architecture."""
 
     @property
     def name(self) -> str:
@@ -61,10 +66,14 @@ class SearchTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Search Orchestra's knowledge base for short factual snippets. "
-            "Use for questions about JWT, SSE, tool calling, LangGraph, Postgres, "
-            "or other AI-engineering topics in this project. "
-            "Returns top matching snippets (mock for Day 4)."
+            "Search Orchestra's built-in reference index for short factual "
+            "snippets about how this platform is built — JWT auth, SSE streaming, "
+            "tool calling, LangGraph, and PostgreSQL. "
+            "This index covers Orchestra itself only. It is not a web search and "
+            "does not cover current events, external products, or general world "
+            "knowledge; answer those from your own knowledge instead. "
+            "Uploaded user documents are not here either — those are retrieved "
+            "automatically when the agent has a knowledge base attached."
         )
 
     @property
@@ -110,13 +119,17 @@ class SearchTool(BaseTool):
         scored.sort(key=lambda item: item[0], reverse=True)
         top = [doc for _, doc in scored[:limit_i]]
 
+        # The literal phrase "No knowledge hits" is matched by the graph answer
+        # node to detect an empty search and fall back to general knowledge.
         if not top:
             return (
                 f"No knowledge hits for '{query}'. "
-                "Try queries like JWT, SSE, tool calling, LangGraph, or PostgreSQL. [source: mock]"
+                "This index only covers Orchestra's own architecture — try JWT, SSE, "
+                "tool calling, LangGraph, or PostgreSQL, or answer from general "
+                "knowledge. [source: Orchestra reference index]"
             )
 
-        lines = [f"Search results for '{query}' [source: mock]:"]
+        lines = [f"Results for '{query}' [source: Orchestra reference index]:"]
         for idx, doc in enumerate(top, start=1):
             lines.append(f"{idx}. {doc['title']}: {doc['snippet']}")
         return "\n".join(lines)

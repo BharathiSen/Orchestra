@@ -96,7 +96,7 @@ class ResearchAgent:
                     f"score={item.get('score')}): {item.get('content')}"
                 )
         if search_notes:
-            notes_parts.append("Web/search results:")
+            notes_parts.append("Reference index results:")
             notes_parts.append(search_notes)
 
         if not notes_parts:
@@ -161,7 +161,7 @@ class ResearchAgent:
         if retrieved:
             parts.append(f"{len(retrieved)} chunk(s)")
         if search_notes:
-            parts.append("web search")
+            parts.append("reference index")
         if not parts:
             parts.append("conversation/memory only")
         summary = "Parallel research: " + ", ".join(parts)

@@ -7,7 +7,7 @@ from app.core.database import Base
 
 
 class Conversation(Base):
-    """A chat thread within a project (Day 3)."""
+    """A chat thread within a project, optionally bound to a specific agent."""
 
     __tablename__ = "conversations"
 

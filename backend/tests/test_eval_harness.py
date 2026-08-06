@@ -51,8 +51,8 @@ def test_route_full_essay() -> None:
 
 
 def test_extract_name_fact() -> None:
-    facts = extract_facts("My name is Bharathi.")
-    assert any(f.key == "name" and f.value.lower() == "bharathi" for f in facts)
+    facts = extract_facts("My name is Avery.")
+    assert any(f.key == "name" and f.value.lower() == "avery" for f in facts)
 
 
 def test_extract_preference_fact() -> None:
@@ -61,39 +61,42 @@ def test_extract_preference_fact() -> None:
 
 
 def test_fake_llm_name_recall_golden() -> None:
-    llm = FakeLLM({"what is my name": "Bharathi"})
+    llm = FakeLLM({"what is my name": "Avery"})
     result = llm.complete_chat(
         messages=[
             {"role": "system", "content": "You remember conversation memory."},
-            {"role": "user", "content": "My name is Bharathi."},
+            {"role": "user", "content": "My name is Avery."},
             {"role": "assistant", "content": "Noted."},
             {"role": "user", "content": "What is my name?"},
         ],
         model="fake",
         temperature=0,
     )
-    assert "bharathi" in (result.content or "").lower()
+    assert "avery" in (result.content or "").lower()
 
 
-def test_acdof_grounding_from_research_notes() -> None:
-    """Golden: answer should use research notes, not invent unrelated layers."""
+def test_grounding_from_research_notes() -> None:
+    """Golden: answer should use research notes, not invent unrelated stages."""
     notes = (
-        "ACDOF layers: Acquisition, Computation, Decision, Operation, Feedback"
+        "Orchestra RAG pipeline stages: extract, chunk, embed, retrieve, generate"
     )
-    llm = FakeLLM({"acdof": notes})
+    llm = FakeLLM({"rag pipeline": notes})
     result = llm.complete_chat(
         messages=[
             {"role": "system", "content": "Use research notes only."},
             {
                 "role": "user",
-                "content": f"Research notes:\n{notes}\n\nWhat are the layers of ACDOF?",
+                "content": (
+                    f"Research notes:\n{notes}\n\n"
+                    "What are the stages of the RAG pipeline?"
+                ),
             },
         ],
         model="fake",
         temperature=0,
     )
     text = (result.content or "").lower()
-    assert "acquisition" in text or "computation" in text or "feedback" in text
+    assert "extract" in text or "chunk" in text or "retrieve" in text
     assert "governance layer" not in text
 
 

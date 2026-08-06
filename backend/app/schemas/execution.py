@@ -1,4 +1,4 @@
-"""Day 9 — observability / execution schemas."""
+"""Response schemas for the observability API (executions, steps, metrics, replay)."""
 
 from __future__ import annotations
 

@@ -7,7 +7,12 @@ from app.core.database import Base
 
 
 class Agent(Base):
-    """Agent definition owned via a project (Day 2 — no LLM execution yet)."""
+    """An agent's configuration: prompt, model, and knowledge bases.
+
+    This is declarative config only — the row holds no execution state. Runtime
+    behaviour lives in the orchestrator and graph packages, which read an Agent
+    to decide how a chat turn should be handled.
+    """
 
     __tablename__ = "agents"
 

@@ -29,7 +29,7 @@ def get_chat_models() -> ModelsResponse:
 
 @router.get("/tools", response_model=ToolsResponse)
 def list_tools(current_user: User = Depends(get_current_user)) -> ToolsResponse:
-    """List registered tools (Day 4 tool registry catalog)."""
+    """List every tool in the registry with its JSON schema."""
     _ = current_user
     catalog = ensure_default_tools().public_catalog()
     tools = [ToolInfo.model_validate(item) for item in catalog]
