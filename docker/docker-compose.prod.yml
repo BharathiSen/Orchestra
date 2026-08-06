@@ -1,0 +1,138 @@
+# Orchestra — PRODUCTION-SHAPED stack.
+#
+# Differences from docker-compose.yml that matter:
+#   * no bind mounts and no reload — images are immutable build artifacts
+#   * the frontend serves a compiled Next.js bundle, not a dev server
+#   * Postgres and Redis publish no host ports at all; they are reachable only
+#     on the internal compose network
+#   * ENVIRONMENT=production, so startup checks refuse weak secrets and rate
+#     limiting fails closed if Redis is unreachable
+#   * restart policies and memory limits are set
+#
+#   docker compose -f docker-compose.prod.yml --env-file ../.env up -d --build
+#
+# Required in .env before this will start:
+#   JWT_SECRET            32+ random characters
+#   POSTGRES_PASSWORD     not "orchestra"
+#   DATABASE_URL          matching the password above
+#   CORS_ORIGINS          your real frontend origin
+#   ALLOWED_HOSTS         your real backend hostname(s)
+#   GROQ_API_KEY or GEMINI_API_KEY
+#
+# Terminate TLS in front of this stack with a reverse proxy. If that proxy
+# buffers responses, chat streaming will appear frozen — disable buffering for
+# the chat endpoint.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: orchestra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 1g
+
+  redis:
+    image: redis:7-alpine
+    container_name: orchestra-redis
+    restart: unless-stopped
+    # Redis holds conversation buffers and rate-limit counters. Both are
+    # recoverable, so an in-memory-only policy with a bounded cache is fine.
+    command: redis-server --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 384m
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: orchestra-backend
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-1440}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_DEFAULT_MODEL: ${GROQ_DEFAULT_MODEL:-llama-3.1-8b-instant}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash}
+      UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
+      MEMORY_BUFFER_SIZE: ${MEMORY_BUFFER_SIZE:-10}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      CHAT_RATE_LIMIT_PER_MINUTE: ${CHAT_RATE_LIMIT_PER_MINUTE:-10}
+      CHAT_MAX_CONCURRENT_STREAMS: ${CHAT_MAX_CONCURRENT_STREAMS:-3}
+      CHAT_DAILY_TOKEN_BUDGET: ${CHAT_DAILY_TOKEN_BUDGET:-200000}
+      SIGNUP_RATE_LIMIT_PER_HOUR: ${SIGNUP_RATE_LIMIT_PER_HOUR:-5}
+      MAX_REQUEST_BYTES: ${MAX_REQUEST_BYTES:-26214400}
+      DEMO_EMAIL: ${DEMO_EMAIL:-}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - upload_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/health/live"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    mem_limit: 2g
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      target: runtime
+      # NEXT_PUBLIC_* values are compiled into the bundle, so they are build
+      # arguments here rather than runtime environment variables. Changing one
+      # requires a rebuild, not a restart.
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?set NEXT_PUBLIC_SITE_URL}
+        NEXT_PUBLIC_DEMO_EMAIL: ${NEXT_PUBLIC_DEMO_EMAIL:-}
+        NEXT_PUBLIC_DEMO_PASSWORD: ${NEXT_PUBLIC_DEMO_PASSWORD:-}
+    container_name: orchestra-frontend
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    mem_limit: 512m
+
+volumes:
+  postgres_data:
+  redis_data:
+  upload_data:

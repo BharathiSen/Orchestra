@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from "next";
+
+import DemoBanner from "@/components/DemoBanner";
 import "./globals.css";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:13000";
@@ -57,7 +59,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="font-sans">{children}</body>
+      <body className="font-sans">
+        <DemoBanner />
+        {children}
+      </body>
     </html>
   );
 }

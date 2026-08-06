@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Document, DocumentChunk, KnowledgeBase, Project
+from app.models import Document, DocumentChunk, KnowledgeBase
 
 
 class KnowledgeRepository:

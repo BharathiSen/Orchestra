@@ -32,9 +32,24 @@ class MemoryService:
         self.store = store or RedisConversationStore()
         self.llm = llm
         self.buffer_limit = settings.memory_buffer_size
+        self._connected: bool | None = None
 
     def redis_connected(self) -> bool:
-        return self.store.ping()
+        """Connectivity, resolved once per service instance.
+
+        A single chat turn asks this from build_context, get_status, and
+        remember_turn, several times each. Because the service is constructed
+        per request, caching for its lifetime removes roughly eight network
+        round-trips per turn without ever serving a stale answer across
+        requests. Operations that observe a failure call `_mark_disconnected`
+        so the cached value cannot outlive a mid-request outage.
+        """
+        if self._connected is None:
+            self._connected = self.store.ping()
+        return self._connected
+
+    def _mark_disconnected(self) -> None:
+        self._connected = False
 
     def get_status(
         self,
@@ -51,12 +66,14 @@ class MemoryService:
                 has_summary = bool(self.store.get_summary(conversation_id))
             except RedisError:
                 connected = False
+                self._mark_disconnected()
         session = False
         if connected:
             try:
                 session = self.store.session_active(user_id)
             except RedisError:
                 connected = False
+                self._mark_disconnected()
         long_term = self.list_long_term(user_id=user_id)
         return MemoryStatus(
             redis_connected=connected,
@@ -109,7 +126,7 @@ class MemoryService:
     ) -> list[MemoryMessage]:
         """Prefer Redis buffer; fall back to last N Postgres messages."""
         try:
-            if self.store.ping():
+            if self.redis_connected():
                 cached = self.store.get_messages(conversation_id)
                 if cached:
                     return cached
@@ -121,7 +138,7 @@ class MemoryService:
                     )
                     return self.store.get_messages(conversation_id)
         except RedisError:
-            pass
+            self._mark_disconnected()
 
         if not postgres_fallback:
             return []
@@ -146,7 +163,7 @@ class MemoryService:
         model: str | None = None,
     ) -> None:
         try:
-            if not self.store.ping():
+            if not self.redis_connected():
                 return
             overflow = self.store.peek_overflow(conversation_id, incoming=2)
             if overflow:
@@ -168,6 +185,7 @@ class MemoryService:
                 content=assistant_content,
             )
         except RedisError:
+            self._mark_disconnected()
             return
 
     def _compress_overflow(
@@ -237,6 +255,7 @@ class MemoryService:
                 summary = self.store.get_summary(conversation_id)
             except RedisError:
                 summary = None
+                self._mark_disconnected()
         long_term_rows = self.list_long_term(user_id=user_id)
         long_term = [
             {"category": r.category, "key": r.key, "value": r.value}

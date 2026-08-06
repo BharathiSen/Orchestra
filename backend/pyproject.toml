@@ -1,0 +1,41 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [".venv", "venv", "__pycache__", ".pytest_cache"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # import sorting
+    "B",      # bugbear
+    "UP",     # pyupgrade
+    "C4",     # comprehensions
+    "SIM",    # simplification
+]
+ignore = [
+    # Long lines are caught by the formatter's line-length, and a handful of
+    # URLs and prompt strings are clearer left intact.
+    "E501",
+    # `except Exception` is deliberate at pipeline boundaries: a failing agent,
+    # tool, or Redis call must degrade the turn rather than kill the request.
+    # Those sites are individually annotated with `# noqa: BLE001`.
+    "B008",   # FastAPI's Depends() in defaults is the documented idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+# SQLAlchemy relationships use quoted forward references that are resolved by
+# the declarative registry at runtime, not by Python's namespace. Ruff cannot
+# see them and reports every one as an undefined name.
+"app/models/*.py" = ["F821"]
+"app/memory/models.py" = ["F821"]
+# The seed script must extend sys.path before importing the app package, so its
+# imports are intentionally not at the top of the file.
+"scripts/*.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

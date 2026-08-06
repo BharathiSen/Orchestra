@@ -7,7 +7,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { ApiError, api, type Project } from "@/lib/api";
 import { clearSession, getToken } from "@/lib/auth";
 
-type DialogMode = "edit" | null;
+type DialogMode = "edit" | "delete" | null;
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -23,6 +23,8 @@ export default function ProjectsPage() {
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [updatingProject, setUpdatingProject] = useState(false);
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   async function loadProjects(authToken: string) {
     const data = await api.listProjects(authToken);
@@ -63,14 +65,24 @@ export default function ProjectsPage() {
     }
   }
 
-  async function onDelete(id: number) {
-    if (!token) return;
+  function confirmDelete(project: Project) {
+    setDeletingProject(project);
+    setDialog("delete");
+    setError(null);
+  }
+
+  async function onDelete() {
+    if (!token || !deletingProject) return;
+    setDeleteBusy(true);
     setError(null);
     try {
-      await api.deleteProject(token, id);
+      await api.deleteProject(token, deletingProject.id);
+      closeDialog();
       await loadProjects(token);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to delete project");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -85,6 +97,7 @@ export default function ProjectsPage() {
   function closeDialog() {
     setDialog(null);
     setEditingProject(null);
+    setDeletingProject(null);
     setEditName("");
     setEditDescription("");
   }
@@ -207,7 +220,7 @@ export default function ProjectsPage() {
                     Edit
                   </button>
                   <button
-                    onClick={() => onDelete(project.id)}
+                    onClick={() => confirmDelete(project)}
                     className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
                   >
                     Delete
@@ -218,6 +231,51 @@ export default function ProjectsPage() {
           ))
         )}
       </section>
+
+      {dialog === "delete" && deletingProject && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-project-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
+            <h2 id="delete-project-title" className="font-display text-xl font-semibold">
+              Delete “{deletingProject.name}”?
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              This permanently removes the project along with its agents,
+              conversations, knowledge bases, uploaded documents, and every
+              execution trace. It cannot be undone.
+            </p>
+
+            {error && (
+              <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDialog}
+                disabled={deleteBusy}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={deleteBusy}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleteBusy ? "Deleting…" : "Delete project"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {dialog === "edit" && editingProject && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">

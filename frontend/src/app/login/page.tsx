@@ -2,10 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { ApiError, api } from "@/lib/api";
 import { getToken, saveSession } from "@/lib/auth";
+
+const DEMO_EMAIL = (process.env.NEXT_PUBLIC_DEMO_EMAIL || "").trim();
+const DEMO_PASSWORD = process.env.NEXT_PUBLIC_DEMO_PASSWORD || "";
+const DEMO_ENABLED = Boolean(DEMO_EMAIL && DEMO_PASSWORD);
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,6 +25,39 @@ export default function LoginPage() {
       router.replace("/dashboard");
     }
   }, [router]);
+
+  const signInAsDemo = useCallback(async () => {
+    if (!DEMO_ENABLED) return;
+    setError(null);
+    setLoading(true);
+    setMode("login");
+    setEmail(DEMO_EMAIL);
+    setPassword(DEMO_PASSWORD);
+    try {
+      const result = await api.login({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
+      saveSession(result.access_token, result.user);
+      router.push("/dashboard");
+    } catch (err) {
+      // Leave the credentials filled in so the visitor can retry manually
+      // rather than being dropped on an empty form.
+      setError(
+        err instanceof ApiError
+          ? `Demo sign-in failed: ${err.message}`
+          : "Demo sign-in failed. Try the credentials below.",
+      );
+      setLoading(false);
+    }
+  }, [router]);
+
+  // Arriving from the landing page's "Try the demo" button signs in directly.
+  // Read from the URL rather than useSearchParams: this is a client-only
+  // concern, and useSearchParams would force a Suspense boundary at build time.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("demo") !== "1") return;
+    if (getToken()) return;
+    void signInAsDemo();
+  }, [signInAsDemo]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -142,6 +179,23 @@ export default function LoginPage() {
           >
             {loading ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}
           </button>
+
+          {DEMO_ENABLED && mode === "login" && (
+            <div className="mt-5 border-t border-slate-200 pt-4">
+              <button
+                type="button"
+                onClick={() => void signInAsDemo()}
+                disabled={loading}
+                className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold transition hover:border-accent hover:text-accent disabled:opacity-60"
+              >
+                Sign in to the demo workspace
+              </button>
+              <p className="mt-2 text-center text-xs text-slate-500">
+                Shared account — <span className="font-medium">{DEMO_EMAIL}</span>.
+                Data may be reset at any time.
+              </p>
+            </div>
+          )}
 
           <p className="mt-4 text-center text-xs text-slate-500">
             After login you land on the{" "}

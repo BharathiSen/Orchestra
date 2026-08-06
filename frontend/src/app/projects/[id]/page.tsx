@@ -7,7 +7,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { ApiError, api, type Agent, type KnowledgeBase, type Project } from "@/lib/api";
 import { clearSession, getToken } from "@/lib/auth";
 
-type DialogMode = "create" | "edit" | null;
+type DialogMode = "create" | "edit" | "delete" | null;
 
 const emptyForm = {
   name: "",
@@ -32,6 +32,8 @@ export default function ProjectDetailPage() {
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [deletingAgent, setDeletingAgent] = useState<Agent | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = useCallback(
     async (authToken: string) => {
@@ -130,14 +132,25 @@ export default function ProjectDetailPage() {
     }
   }
 
-  async function onDelete(id: number) {
-    if (!token) return;
+  function confirmDeleteAgent(agent: Agent) {
+    setDeletingAgent(agent);
+    setDialog("delete");
+    setError(null);
+  }
+
+  async function onDelete() {
+    if (!token || !deletingAgent) return;
+    setDeleteBusy(true);
     setError(null);
     try {
-      await api.deleteAgent(token, id);
+      await api.deleteAgent(token, deletingAgent.id);
+      setDialog(null);
+      setDeletingAgent(null);
       await load(token);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to delete agent");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -276,7 +289,7 @@ export default function ProjectDetailPage() {
                     Edit
                   </button>
                   <button
-                    onClick={() => onDelete(agent.id)}
+                    onClick={() => confirmDeleteAgent(agent)}
                     className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
                   >
                     Delete
@@ -293,7 +306,55 @@ export default function ProjectDetailPage() {
         )}
       </section>
 
-      {dialog && (
+      {dialog === "delete" && deletingAgent && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-agent-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
+            <h2 id="delete-agent-title" className="font-display text-xl font-semibold">
+              Delete “{deletingAgent.name}”?
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              The agent and its prompt configuration are removed permanently.
+              Conversations and execution traces it produced are kept, but will
+              no longer be linked to an agent.
+            </p>
+
+            {error && (
+              <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDialog(null);
+                  setDeletingAgent(null);
+                }}
+                disabled={deleteBusy}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={deleteBusy}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleteBusy ? "Deleting…" : "Delete agent"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(dialog === "create" || dialog === "edit") && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
           <form
             onSubmit={onSubmit}

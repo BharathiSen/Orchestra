@@ -1,4 +1,6 @@
+import contextlib
 import json
+import logging
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -7,12 +9,14 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.limiter import get_rate_limiter
 from app.evaluation.tracker import ExecutionTracker, StepRecord
 from app.graph import build_agent_graph
 from app.memory.service import MemoryService
 from app.models import Agent, Conversation, Message, Project, User
 from app.observability import TraceService, TrackingLLM
 from app.orchestrator import OrchestraEngine
+from app.prompts.system import tool_system_addendum
 from app.rag.service import RagService
 from app.repositories.chat_repository import ConversationRepository, MessageRepository
 from app.schemas import ChatRequest, ConversationCreate, ConversationUpdate
@@ -23,7 +27,8 @@ from app.services.llm_provider import (
     missing_provider_message,
 )
 from app.tools import ensure_default_tools
-from app.prompts.system import tool_system_addendum
+
+logger = logging.getLogger(__name__)
 
 TOOL_SYSTEM_ADDENDUM = tool_system_addendum()
 
@@ -113,10 +118,10 @@ class ChatService:
 
     def delete_conversation(self, *, user: User, conversation_id: int) -> None:
         conversation = self._owned_conversation(conversation_id=conversation_id, user=user)
-        try:
+        # Clearing the Redis buffer is best-effort; the Postgres delete below is
+        # what actually removes the conversation.
+        with contextlib.suppress(Exception):
             self.memory.store.clear_conversation(conversation_id)
-        except Exception:  # noqa: BLE001
-            pass
         self.conversations.delete(conversation)
 
     def list_messages(self, *, user: User, conversation_id: int) -> list[Message]:
@@ -148,6 +153,75 @@ class ChatService:
         if enable_tools:
             return base + TOOL_SYSTEM_ADDENDUM
         return base
+
+    def _ground_with_knowledge(
+        self,
+        *,
+        agent: Agent | None,
+        question: str,
+        base_system_prompt: str,
+        llm_messages: list[dict[str, Any]],
+        tracker: ExecutionTracker,
+        turn_trace: dict[str, Any],
+    ) -> Iterator[str]:
+        """Retrieve for an agent's knowledge bases and ground the system prompt.
+
+        Shared by the direct and tools paths, which previously carried identical
+        copies of this block. Mutates `llm_messages[0]` in place and yields the
+        SSE events the caller should forward, so the retrieval step is recorded
+        on the tracker exactly once regardless of which path runs.
+        """
+        if not (agent and getattr(agent, "knowledge_bases", None)):
+            return
+
+        kb_ids = [kb.id for kb in agent.knowledge_bases]
+        retrieve_step = tracker.start_step("retrieve")
+        try:
+            chunks = self.rag.retrieve_chunks_for_question(
+                question=question,
+                knowledge_base_ids=kb_ids,
+                top_k=5,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Retrieval failing should degrade to an ungrounded answer rather
+            # than abort the turn: the model can still respond usefully.
+            logger.warning("Knowledge retrieval failed: %s", exc, exc_info=True)
+            tracker.end_step(retrieve_step, status="error", detail={"chunks": 0})
+            return
+
+        if not chunks:
+            tracker.end_step(retrieve_step, status="done", detail={"chunks": 0})
+            return
+
+        retrieved_chunks = self.rag.serialize_chunks(chunks)
+        llm_messages[0]["content"] = self.rag.build_grounded_prompt(
+            base_system_prompt=base_system_prompt,
+            retrieved_chunks=chunks,
+        )
+        turn_trace["retrieved_chunks"] = retrieved_chunks
+        tracker.end_step(
+            retrieve_step,
+            status="done",
+            detail={"chunks": len(retrieved_chunks)},
+        )
+        yield _sse(
+            {
+                "type": "retrieved_context",
+                "count": len(retrieved_chunks),
+                "chunks": retrieved_chunks,
+            }
+        )
+
+    def _record_token_spend(self, *, user_id: int, tracker: ExecutionTracker) -> None:
+        """Bill this turn's tokens against the user's daily budget.
+
+        Called on failure as well as success: a pipeline that errored halfway
+        still consumed whatever the provider already charged for.
+        """
+        get_rate_limiter().record_token_usage(
+            user_id=user_id,
+            tokens=tracker.total_tokens,
+        )
 
     def _title_from_message(self, message: str) -> str:
         cleaned = " ".join(message.strip().split())
@@ -444,35 +518,14 @@ class ChatService:
                     buffer_messages=buffer_messages,
                     user_message=payload.message,
                 )
-                retrieved_chunks: list[dict[str, Any]] = []
-                if agent and getattr(agent, "knowledge_bases", None):
-                    kb_ids = [kb.id for kb in agent.knowledge_bases]
-                    retrieve_step = tracker.start_step("retrieve")
-                    chunks = self.rag.retrieve_chunks_for_question(
-                        question=payload.message,
-                        knowledge_base_ids=kb_ids,
-                        top_k=5,
-                    )
-                    if chunks:
-                        retrieved_chunks = self.rag.serialize_chunks(chunks)
-                        grounded = self.rag.build_grounded_prompt(
-                            base_system_prompt=base_system_prompt,
-                            retrieved_chunks=chunks,
-                        )
-                        llm_messages[0]["content"] = grounded
-                        yield _sse(
-                            {
-                                "type": "retrieved_context",
-                                "count": len(retrieved_chunks),
-                                "chunks": retrieved_chunks,
-                            }
-                        )
-                        turn_trace["retrieved_chunks"] = retrieved_chunks
-                    tracker.end_step(
-                        retrieve_step,
-                        status="done",
-                        detail={"chunks": len(retrieved_chunks)},
-                    )
+                yield from self._ground_with_knowledge(
+                    agent=agent,
+                    question=payload.message,
+                    base_system_prompt=base_system_prompt,
+                    llm_messages=llm_messages,
+                    tracker=tracker,
+                    turn_trace=turn_trace,
+                )
 
                 openai_tools = self.tools.openai_tools()
                 final_answer = ""
@@ -576,37 +629,14 @@ class ChatService:
                     buffer_messages=buffer_messages,
                     user_message=payload.message,
                 )
-                if agent and getattr(agent, "knowledge_bases", None):
-                    kb_ids = [kb.id for kb in agent.knowledge_bases]
-                    retrieve_step = tracker.start_step("retrieve")
-                    chunks = self.rag.retrieve_chunks_for_question(
-                        question=payload.message,
-                        knowledge_base_ids=kb_ids,
-                        top_k=5,
-                    )
-                    if chunks:
-                        retrieved_chunks = self.rag.serialize_chunks(chunks)
-                        grounded = self.rag.build_grounded_prompt(
-                            base_system_prompt=base_system_prompt,
-                            retrieved_chunks=chunks,
-                        )
-                        llm_messages[0]["content"] = grounded
-                        yield _sse(
-                            {
-                                "type": "retrieved_context",
-                                "count": len(retrieved_chunks),
-                                "chunks": retrieved_chunks,
-                            }
-                        )
-                        turn_trace["retrieved_chunks"] = retrieved_chunks
-                        tracker.end_step(
-                            retrieve_step,
-                            status="done",
-                            detail={"chunks": len(retrieved_chunks)},
-                        )
-                    else:
-                        tracker.end_step(retrieve_step, status="done", detail={"chunks": 0})
-
+                yield from self._ground_with_knowledge(
+                    agent=agent,
+                    question=payload.message,
+                    base_system_prompt=base_system_prompt,
+                    llm_messages=llm_messages,
+                    tracker=tracker,
+                    turn_trace=turn_trace,
+                )
                 generate_step = tracker.start_step("generate")
                 for token in llm.stream_chat_completion(
                     messages=llm_messages,
@@ -632,6 +662,7 @@ class ChatService:
                     **{k: v for k, v in turn_trace.items() if v not in (None, [], {})},
                 },
             )
+            self._record_token_spend(user_id=user.id, tracker=tracker)
             yield _sse({"type": "error", "detail": detail})
             return
         except Exception as exc:  # noqa: BLE001
@@ -650,6 +681,7 @@ class ChatService:
                     **{k: v for k, v in turn_trace.items() if v not in (None, [], {})},
                 },
             )
+            self._record_token_spend(user_id=user.id, tracker=tracker)
             yield _sse({"type": "error", "detail": detail})
             return
         full_reply = "".join(assistant_chunks).strip()
@@ -691,6 +723,7 @@ class ChatService:
             status="completed",
             snapshot=tracker.snapshot,
         )
+        self._record_token_spend(user_id=user.id, tracker=tracker)
 
         # Persist the completed turn into short-term memory, summarizing any
         # messages pushed out of the buffer.

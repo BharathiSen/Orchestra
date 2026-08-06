@@ -1,4 +1,16 @@
 node_modules
 .next
+.open-next
 .git
-.env*.local
+
+# Cloudflare/OpenNext local state — large, machine-specific, never needed in a build
+.wrangler
+.dev.vars
+
+# Secrets must never enter the build context. NEXT_PUBLIC_* values are passed
+# as build arguments instead.
+.env
+.env.*
+!.env.example
+
+*.tsbuildinfo

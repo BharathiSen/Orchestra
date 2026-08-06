@@ -22,11 +22,3 @@ def sum_decimal_as_float(values: list[Any]) -> float:
     for v in values:
         total += float(v or 0)
     return round(total, 6)
-
-
-def tool_success_rate(tool_events: list[dict[str, Any]]) -> float | None:
-    results = [e for e in tool_events if e.get("type") == "tool_result"]
-    if not results:
-        return None
-    ok = sum(1 for e in results if e.get("status") != "error")
-    return success_rate(len(results), ok)

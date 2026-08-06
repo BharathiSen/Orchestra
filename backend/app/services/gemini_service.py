@@ -1,6 +1,6 @@
-from collections.abc import Iterator
 import json
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 import google.generativeai as genai

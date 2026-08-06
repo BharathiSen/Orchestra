@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.evaluation.metrics import average, success_rate, sum_decimal_as_float

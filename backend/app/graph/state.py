@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import operator
-from typing import Any
+from typing import Annotated, Any
 
-from typing_extensions import Annotated, TypedDict
+from typing_extensions import TypedDict
 
 
 class GraphState(TypedDict, total=False):

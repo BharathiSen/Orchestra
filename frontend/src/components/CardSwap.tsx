@@ -12,6 +12,7 @@ import React, {
   type HTMLAttributes,
   type ReactElement,
   type ReactNode,
+  type Ref,
   type RefObject,
 } from "react";
 import gsap from "gsap";
@@ -21,6 +22,10 @@ import "./CardSwap.css";
 type CardProps = HTMLAttributes<HTMLDivElement> & {
   customClass?: string;
 };
+
+// React 19 no longer folds `ref` into the props type that cloneElement accepts,
+// so it has to be declared explicitly for the clone below to type-check.
+type CardPropsWithRef = CardProps & { ref?: Ref<HTMLDivElement> };
 
 export const Card = forwardRef<HTMLDivElement, CardProps>(
   ({ customClass, className, ...rest }, ref) => (
@@ -232,7 +237,7 @@ export default function CardSwap({
 
   const rendered = childArr.map((child, i) =>
     isValidElement(child)
-      ? cloneElement(child as ReactElement<CardProps>, {
+      ? cloneElement(child as ReactElement<CardPropsWithRef>, {
           key: i,
           ref: refs[i] as RefObject<HTMLDivElement>,
           style: {

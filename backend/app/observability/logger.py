@@ -9,9 +9,13 @@ from typing import Any
 _logger = logging.getLogger("orchestra.observability")
 if not _logger.handlers:
     handler = logging.StreamHandler()
+    # Emit the JSON payload verbatim so log shippers can parse it as-is.
     handler.setFormatter(logging.Formatter("%(message)s"))
     _logger.addHandler(handler)
     _logger.setLevel(logging.INFO)
+    # Without this, records reach both this handler and the root handler
+    # configured in main.py, printing every event twice.
+    _logger.propagate = False
 
 
 def log_event(event: str, **fields: Any) -> None:

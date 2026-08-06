@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import enforce_signup_rate_limit, get_current_user
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import User
@@ -11,7 +11,12 @@ from app.schemas import TokenOut, UserCreate, UserLogin, UserOut
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/signup", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/signup",
+    response_model=TokenOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(enforce_signup_rate_limit)],
+)
 def signup(payload: UserCreate, db: Session = Depends(get_db)) -> TokenOut:
     existing = db.scalar(select(User).where(User.email == payload.email.lower()))
     if existing:

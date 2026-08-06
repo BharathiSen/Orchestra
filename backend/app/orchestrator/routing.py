@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-
 SIMPLE_PATTERNS = [
     r"\bwhat(?:'s| is) my name\b",
     r"\bwho am i\b",

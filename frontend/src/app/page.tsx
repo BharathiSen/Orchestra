@@ -152,12 +152,23 @@ function CapabilityIcon({
   );
 }
 
+// Present only when a demo account has been seeded and wired up. Absent in a
+// normal local checkout, in which case the demo call-to-action is not rendered.
+const DEMO_ENABLED = Boolean(
+  process.env.NEXT_PUBLIC_DEMO_EMAIL && process.env.NEXT_PUBLIC_DEMO_PASSWORD,
+);
+
 export default function LandingPage() {
   const [ctaHref, setCtaHref] = useState("/login");
+  const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
-    setCtaHref(getToken() ? "/dashboard" : "/login");
+    const authed = Boolean(getToken());
+    setSignedIn(authed);
+    setCtaHref(authed ? "/dashboard" : "/login");
   }, []);
+
+  const showDemoCta = DEMO_ENABLED && !signedIn;
 
   return (
     <main className="studio-landing min-h-screen">
@@ -173,11 +184,24 @@ export default function LandingPage() {
             Design agents, run multi-step workflows, and inspect every execution
             — from one calm workspace.
           </p>
-          <div className="animate-fade-up-delay-2 mt-9">
+          <div className="animate-fade-up-delay-2 mt-9 flex flex-wrap items-center gap-3">
             <Link href={ctaHref} className="studio-cta">
               Open workspace
             </Link>
+            {showDemoCta && (
+              <Link
+                href="/login?demo=1"
+                className="inline-flex items-center justify-center rounded-lg border border-slate-400/70 px-5 py-[0.7rem] text-sm font-semibold text-ink transition hover:border-accent hover:text-accent"
+              >
+                Try the demo
+              </Link>
+            )}
           </div>
+          {showDemoCta && (
+            <p className="animate-fade-up-delay-2 mt-3 text-xs text-slate-500">
+              No signup required — opens a shared workspace with traced example runs.
+            </p>
+          )}
         </div>
       </section>
 

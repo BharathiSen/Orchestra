@@ -1,5 +1,11 @@
-# Orchestra local stack: Next.js frontend, FastAPI backend, Postgres+pgvector
-# (embeddings — not Qdrant), and Redis for short-term conversation memory.
+# Orchestra — LOCAL DEVELOPMENT stack.
+#
+# Source is bind-mounted and both servers run in watch mode, so edits reload
+# without a rebuild. That is the point of this file and also why it must not be
+# used for anything internet-facing: use docker-compose.prod.yml for that.
+#
+# Postgres and Redis publish on 127.0.0.1 only, so local clients still work but
+# the databases are not reachable from other machines on the network.
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -8,8 +14,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-orchestra}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orchestra}
       POSTGRES_DB: ${POSTGRES_DB:-orchestra}
+    # Published on loopback only, and on 15432 by default so it never collides
+    # with a Postgres already running on the standard port. Matches the 13000 /
+    # 18000 convention used by the other services.
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-15432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -22,9 +31,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: orchestra-redis
-    # Host publish optional — use 6380 to avoid clashing with a local Redis on 6379.
+    # 6380 on the host avoids clashing with a Redis already running locally.
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -41,10 +50,16 @@ services:
     env_file:
       - ../.env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://orchestra:orchestra@postgres:5432/orchestra}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ENVIRONMENT: development
+      # Deliberately NOT ${DATABASE_URL} / ${REDIS_URL}. Those names are also
+      # used for hosted deployments, so a .env containing a Neon or Upstash URL
+      # would silently redirect this "local" stack at production data while the
+      # postgres and redis containers sat idle beside it.
+      # Point the dev stack elsewhere with DEV_DATABASE_URL / DEV_REDIS_URL.
+      DATABASE_URL: ${DEV_DATABASE_URL:-postgresql+psycopg2://orchestra:orchestra@postgres:5432/orchestra}
+      REDIS_URL: ${DEV_REDIS_URL:-redis://redis:6379/0}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:13000}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash}
       LLM_PROVIDER: ${LLM_PROVIDER:-groq}
@@ -53,6 +68,7 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-llama3.2}
       UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
+      DEMO_EMAIL: ${DEMO_EMAIL:-}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -63,23 +79,44 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/health/live"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+      # Stop at the dependency stage: dev runs from the bind-mounted source, so
+      # building the production bundle here would be wasted work.
+      target: deps
     container_name: orchestra-frontend
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:18000}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:13000}
+      NEXT_PUBLIC_DEMO_EMAIL: ${NEXT_PUBLIC_DEMO_EMAIL:-}
+      NEXT_PUBLIC_DEMO_PASSWORD: ${NEXT_PUBLIC_DEMO_PASSWORD:-}
+    # `npm run dev` listens on 13000, so the container port is 13000 too.
+    # The published mapping previously pointed at 3000 and never connected.
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-13000}:13000"
+    working_dir: /app
     volumes:
       - ../frontend:/app
       - /app/node_modules
       - /app/.next
     depends_on:
       - backend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:13000/"]
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
     command: npm run dev
 
 volumes:

@@ -193,14 +193,108 @@ Agent system prompts are centralized under `backend/app/prompts/`, one module pe
 
 ---
 
-## Testing
+## Development checks
 
 ```bash
 cd backend
-pytest tests/
+pytest tests/                 # deterministic LLM stub — no API keys, no network
+
+cd ../frontend
+npm run lint                  # ESLint (flat config, next/core-web-vitals)
+npm run typecheck             # tsc --noEmit
+npm run build                 # production build
 ```
 
-The suite uses a deterministic LLM stub, so it runs with no API keys and no network.
+CI runs all of the above plus both Docker image builds, and asserts that the
+backend refuses to start in production with a default signing key.
+
+> If `npm install` silently drops devDependencies, check for a global
+> `NODE_ENV=production` — npm omits dev packages when it is set.
+
+---
+
+## Deployment
+
+### Topology
+
+Four processes, two data stores. Only the backend talks to Postgres and Redis.
+
+```text
+  Browser ──HTTPS──► Next.js frontend ──REST + SSE──► FastAPI backend ──┬──► Postgres 16 + pgvector
+                                                                        ├──► Redis 7
+                                                                        └──► Groq / Gemini / Ollama
+```
+
+| Piece | Suggested host | Notes |
+|-------|----------------|-------|
+| Frontend | Vercel | Root directory `frontend/`; zero config for Next.js 15 |
+| Backend | Railway · Render · Fly.io | Needs a persistent disk only if you keep uploaded originals |
+| Postgres + pgvector | Neon | Enable the `vector` extension on the database |
+| Redis | Upstash | The TLS `rediss://` URL works directly |
+| LLM | Groq or Gemini | Groq's free tier is enough for a demo |
+
+`DATABASE_URL` must use the `postgresql+psycopg2://` scheme — managed providers hand you a `postgres://` URL, which SQLAlchemy cannot resolve a driver for.
+
+### Self-hosting
+
+```bash
+cp .env.example .env      # then set the required values below
+cd docker
+docker compose -f docker-compose.prod.yml --env-file ../.env up -d --build
+```
+
+The production compose file builds real images: a compiled Next.js bundle rather than a dev server, both containers running as non-root, no bind mounts, healthchecks and restart policies, and no published Postgres or Redis ports.
+
+### Required configuration
+
+`ENVIRONMENT=production` makes the backend validate its own configuration at startup and **refuse to boot** rather than run in a known-unsafe state:
+
+| Refuses to start when | Because |
+|---|---|
+| `JWT_SECRET` is the value from `.env.example` | Anyone who read this repository could forge tokens for any account |
+| `JWT_SECRET` is under 32 characters | Brute-forceable |
+| `DATABASE_URL` uses a well-known password (`orchestra`, `postgres`, …) | Ships as a default in this repo and every tutorial |
+| The selected `LLM_PROVIDER` has no API key | Chat would 503 on every request |
+
+Generate a signing key with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(64))"
+```
+
+Also set `CORS_ORIGINS` and `NEXT_PUBLIC_API_URL` to real origins, and `ALLOWED_HOSTS` to your backend hostname. `CORS_ORIGINS` is compared literally — no wildcards, no trailing slashes. A mismatch shows up as a browser CORS error on every authenticated call while `/health` still answers from a terminal; that asymmetry is the signature.
+
+### Health checks
+
+| Endpoint | Purpose |
+|---|---|
+| `/health/live` | Liveness. Checks nothing external — a database outage should not restart the app container |
+| `/health/ready` | Readiness. Runs `SELECT 1` and pings Redis, returning **503** when a dependency is down so the platform drains traffic instead of routing it into failures |
+
+### Rate limiting
+
+The chat endpoint is metered on three axes, because any one alone leaves a hole:
+
+| Limit | Default | Stops |
+|---|---|---|
+| Requests per minute, per user | 10 | Scripted hammering |
+| Concurrent streams, per user | 3 | Many simultaneous 30-second pipelines from one account |
+| Daily token budget, per user | 200,000 | The actual spend, which the other two do not bound |
+
+Signup is capped at 5 per hour per IP. Counters live in Redis. In production, an unreachable Redis makes chat fail **closed** — an unmetered LLM endpoint is a bigger problem than a brief outage, and `/health/ready` reports the instance as unready anyway. Locally it fails open, so Redis stays optional.
+
+Exceeded limits return `429` with `Retry-After`.
+
+### Demo workspace
+
+```bash
+cd backend
+python scripts/seed_demo.py
+```
+
+Creates a shared account with a project, two agents, a small knowledge base, and 20 executions spread across pipelines — so the dashboard and observability screens have real data. Idempotent; `--reset` rebuilds, `--skip-embeddings` avoids the model download.
+
+Set `DEMO_EMAIL` on the backend and `NEXT_PUBLIC_DEMO_EMAIL` / `NEXT_PUBLIC_DEMO_PASSWORD` on the frontend to surface a "Try the demo" button on the landing page and a banner while signed in as that account. Leave them blank and every demo affordance disappears. Those frontend values are compiled into the public bundle by design — only ever point them at a throwaway account.
 
 ---
 

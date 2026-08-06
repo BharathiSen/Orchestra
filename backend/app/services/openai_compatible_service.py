@@ -1,13 +1,14 @@
-from collections.abc import Iterator
 import json
 import random
 import time
 import uuid
-from typing import Any, Callable
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import httpx
 from fastapi import HTTPException, status
 
+from app.core.config import settings
 from app.services.llm_types import ChatCompletionResult, ToolCallRequest
 
 
@@ -21,13 +22,21 @@ class OpenAICompatibleService:
         api_key: str,
         provider_name: str,
         missing_key_hint: str,
-        max_retries: int = 4,
+        max_retries: int | None = None,
+        timeout_seconds: float | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.provider_name = provider_name
         self.missing_key_hint = missing_key_hint
-        self.max_retries = max_retries
+        self.max_retries = (
+            settings.llm_max_retries if max_retries is None else max_retries
+        )
+        self.timeout_seconds = (
+            settings.llm_request_timeout_seconds
+            if timeout_seconds is None
+            else timeout_seconds
+        )
         if not self.api_key.strip() and provider_name != "ollama":
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -41,9 +50,19 @@ class OpenAICompatibleService:
         return headers
 
     def _sleep_backoff(self, attempt: int) -> None:
-        # Exponential backoff with jitter to ride out Groq TPM limits.
+        # Exponential backoff with jitter to ride out provider TPM limits.
+        # Capped so a retry storm cannot dominate the request's wall time.
         base = min(8.0, 2**attempt)
         time.sleep(base + random.uniform(0, 0.75))
+
+    def _timeout_error(self, exc: Exception) -> HTTPException:
+        return HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=(
+                f"{self.provider_name} did not respond within "
+                f"{self.timeout_seconds:.0f}s. Try a shorter prompt or a faster model."
+            ),
+        )
 
     def _with_retries(self, operation: Callable[[], Any]) -> Any:
         last_exc: Exception | None = None
@@ -92,13 +111,15 @@ class OpenAICompatibleService:
 
         def _once() -> dict[str, Any]:
             try:
-                with httpx.Client(timeout=120.0) as client:
+                with httpx.Client(timeout=self.timeout_seconds) as client:
                     response = client.post(url, headers=self._headers(), json=payload)
                     if response.status_code >= 400:
                         self._raise_http_error(response.status_code, response.text)
                     return response.json()
             except HTTPException:
                 raise
+            except httpx.TimeoutException as exc:
+                raise self._timeout_error(exc) from exc
             except httpx.ConnectError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -167,34 +188,36 @@ class OpenAICompatibleService:
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
             try:
-                with httpx.Client(timeout=120.0) as client:
-                    with client.stream(
+                with (
+                    httpx.Client(timeout=self.timeout_seconds) as client,
+                    client.stream(
                         "POST", url, headers=self._headers(), json=payload
-                    ) as response:
-                        if response.status_code >= 400:
-                            body = response.read().decode("utf-8", errors="replace")
-                            self._raise_http_error(response.status_code, body)
+                    ) as response,
+                ):
+                    if response.status_code >= 400:
+                        body = response.read().decode("utf-8", errors="replace")
+                        self._raise_http_error(response.status_code, body)
 
-                        for line in response.iter_lines():
-                            if not line:
-                                continue
-                            if line.startswith("data:"):
-                                data = line[5:].strip()
-                            else:
-                                continue
-                            if data == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data)
-                            except json.JSONDecodeError:
-                                continue
-                            choices = chunk.get("choices") or []
-                            if not choices:
-                                continue
-                            delta = choices[0].get("delta") or {}
-                            content = delta.get("content")
-                            if content:
-                                yield content
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        if line.startswith("data:"):
+                            data = line[5:].strip()
+                        else:
+                            continue
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta") or {}
+                        content = delta.get("content")
+                        if content:
+                            yield content
                 return
             except HTTPException as exc:
                 last_error = exc
@@ -204,6 +227,8 @@ class OpenAICompatibleService:
                 ):
                     raise
                 self._sleep_backoff(attempt)
+            except httpx.TimeoutException as exc:
+                raise self._timeout_error(exc) from exc
             except httpx.ConnectError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

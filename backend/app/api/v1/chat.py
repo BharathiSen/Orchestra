@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, Query, status
+from collections.abc import Iterator
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import enforce_chat_rate_limit, get_current_user
+from app.core.config import settings
 from app.core.database import get_db
+from app.core.limiter import RateLimiter, get_rate_limiter
 from app.models import User
 from app.schemas import (
     ChatRequest,
@@ -36,15 +40,48 @@ def list_tools(current_user: User = Depends(get_current_user)) -> ToolsResponse:
     return ToolsResponse(tools=tools, count=len(tools))
 
 
+def _stream_with_slot(
+    events: Iterator[str],
+    *,
+    limiter: RateLimiter,
+    user_id: int,
+) -> Iterator[str]:
+    """Yield the chat stream, always returning the concurrency slot.
+
+    The finally block covers the disconnect case too: closing the generator
+    raises GeneratorExit inside it, so a user who navigates away mid-answer does
+    not leak a slot and lock themselves out.
+    """
+    try:
+        yield from events
+    finally:
+        limiter.release_stream_slot(user_id=user_id)
+
+
 @router.post("/chat")
 def chat_stream(
     payload: ChatRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(enforce_chat_rate_limit),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> StreamingResponse:
+    # Taken here rather than in a dependency: a slot must be released when the
+    # stream ends, and a dependency returns long before that happens.
+    slot = limiter.acquire_stream_slot(
+        user_id=current_user.id,
+        limit=settings.chat_max_concurrent_streams,
+    )
+    if not slot.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=slot.detail,
+            headers=slot.headers,
+        )
+
     service = ChatService(db)
+    events = service.stream_chat(user=current_user, payload=payload)
     return StreamingResponse(
-        service.stream_chat(user=current_user, payload=payload),
+        _stream_with_slot(events, limiter=limiter, user_id=current_user.id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

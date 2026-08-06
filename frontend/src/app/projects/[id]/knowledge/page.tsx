@@ -152,16 +152,22 @@ export default function KnowledgePage() {
     });
   }, [token, selectedDocId, loadChunks]);
 
+  // Ingestion runs as a background task, so the list is polled until nothing is
+  // left processing. The dependency is the derived boolean rather than
+  // `documents`: polling replaces that array on every tick, which would tear
+  // down and rebuild the interval each time instead of running a stable cycle.
+  const hasProcessingDocuments = documents.some(
+    (doc) => doc.status === "processing",
+  );
+
   useEffect(() => {
-    if (!token || selectedKbId == null) return;
-    const hasProcessing = documents.some((doc) => doc.status === "processing");
-    if (!hasProcessing) return;
+    if (!token || selectedKbId == null || !hasProcessingDocuments) return;
 
     const timer = window.setInterval(() => {
       loadDocuments(token, selectedKbId).catch(() => undefined);
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [token, selectedKbId, documents, loadDocuments]);
+  }, [token, selectedKbId, hasProcessingDocuments, loadDocuments]);
 
   useEffect(() => {
     if (!token || selectedDocId == null) return;

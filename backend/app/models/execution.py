@@ -13,11 +13,11 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
     Integer,
-    JSON,
     Numeric,
     String,
     Text,
@@ -88,7 +88,7 @@ class Execution(Base):
     # Heuristic evaluation scores
     scores: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
-    steps: Mapped[list["ExecutionStep"]] = relationship(
+    steps: Mapped[list[ExecutionStep]] = relationship(
         "ExecutionStep",
         back_populates="execution",
         cascade="all, delete-orphan",
@@ -129,4 +129,4 @@ class ExecutionStep(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    execution: Mapped["Execution"] = relationship("Execution", back_populates="steps")
+    execution: Mapped[Execution] = relationship("Execution", back_populates="steps")

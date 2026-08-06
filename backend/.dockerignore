@@ -1,6 +1,24 @@
+# Python bytecode and virtualenvs
 __pycache__
 *.pyc
+*.pyo
 .venv
 venv
+env
+
+# Secrets must never enter the build context — configuration is injected at
+# runtime by compose or the hosting platform.
 .env
+.env.*
+!.env.example
+
+# Test and lint caches
 .pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Runtime artifacts
+uploads
+*.log

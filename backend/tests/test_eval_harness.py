@@ -114,7 +114,7 @@ def test_calculator_golden_string() -> None:
 
 
 def test_orchestra_simple_path_skips_writer() -> None:
-    from app.orchestrator.engine import SIMPLE_ORDER, FULL_ORDER
+    from app.orchestrator.engine import FULL_ORDER, SIMPLE_ORDER
 
     assert "fast_answer" in SIMPLE_ORDER
     assert "writer" not in SIMPLE_ORDER

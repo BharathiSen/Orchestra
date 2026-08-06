@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -159,13 +160,13 @@ class RedisConversationStore:
             return False
 
     def clear_conversation(self, conversation_id: int) -> None:
-        try:
+        # Best-effort: losing a cached buffer is harmless, and the caller is
+        # usually deleting the conversation from Postgres anyway.
+        with contextlib.suppress(RedisError):
             self.client.delete(
                 self._conv_key(conversation_id),
                 self._summary_key(conversation_id),
             )
-        except RedisError:
-            pass
 
     def dump_conversation(self, conversation_id: int) -> dict[str, Any]:
         return {
