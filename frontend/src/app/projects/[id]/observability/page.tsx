@@ -142,7 +142,7 @@ export default function ObservabilityPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6">
+      <main className="mx-auto flex min-h-dvh max-w-5xl flex-col items-center justify-center px-6">
         <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">
           Orchestra
         </p>
@@ -157,7 +157,7 @@ export default function ObservabilityPage() {
   const hasFilters = Boolean(q.trim() || status || pipeline);
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-5xl px-6 py-10">
       <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">

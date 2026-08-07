@@ -44,9 +44,12 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY --chown=orchestra:orchestra . .
 
-# Uploads are written at runtime, so the directory must exist and be owned by
-# the unprivileged user before the process drops into it.
-RUN mkdir -p /app/uploads && chown -R orchestra:orchestra /app/uploads
+# Uploads live outside /app on purpose. The development compose bind-mounts the
+# source over /app, which would shadow an uploads directory created here and
+# leave the volume owned by root — the container runs unprivileged, so writes
+# would fail. A path outside the bind mount keeps its image ownership, so the
+# named volume inherits uid 1001 in both development and production.
+RUN mkdir -p /data/uploads && chown -R orchestra:orchestra /data
 
 USER orchestra
 

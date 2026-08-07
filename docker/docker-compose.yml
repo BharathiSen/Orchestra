@@ -67,12 +67,13 @@ services:
       GROQ_DEFAULT_MODEL: ${GROQ_DEFAULT_MODEL:-llama-3.1-8b-instant}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-llama3.2}
-      UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
+      # Outside /app so the source bind mount below cannot shadow it.
+      UPLOAD_DIR: ${UPLOAD_DIR:-/data/uploads}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ../backend:/app
-      - upload_data:/app/uploads
+      - upload_data:/data/uploads
     depends_on:
       postgres:
         condition: service_healthy

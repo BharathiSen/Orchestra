@@ -73,6 +73,12 @@ class Settings(BaseSettings):
 
     upload_dir: str = "uploads"
 
+    # Load the embedding model during startup instead of on the first upload or
+    # RAG query. Costs a slower boot in exchange for a first grounded question
+    # that behaves like every subsequent one. Disable only if the host enforces
+    # a startup deadline the model download cannot meet.
+    embedding_warmup_enabled: bool = True
+
     # How many recent turns the Redis short-term buffer keeps before older
     # messages are compressed into a summary.
     memory_buffer_size: int = 10

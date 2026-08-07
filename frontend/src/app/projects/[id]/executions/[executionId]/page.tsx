@@ -106,7 +106,7 @@ export default function ExecutionDetailPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6">
+      <main className="mx-auto flex min-h-dvh max-w-5xl items-center justify-center px-6">
         <p className="text-slate-500">Loading execution…</p>
       </main>
     );
@@ -114,7 +114,7 @@ export default function ExecutionDetailPage() {
 
   if (!execution) {
     return (
-      <main className="mx-auto min-h-screen max-w-5xl px-6 py-10">
+      <main className="mx-auto min-h-dvh max-w-5xl px-6 py-10">
         <p className="text-red-600">{error || "Execution not found"}</p>
         <Link
           href={`/projects/${projectId}/observability`}
@@ -131,7 +131,7 @@ export default function ExecutionDetailPage() {
   const tools = (snapshot.tool_calls as unknown[]) || [];
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-5xl px-6 py-10">
       <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">

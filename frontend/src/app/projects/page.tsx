@@ -123,14 +123,30 @@ export default function ProjectsPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6">
-        <p className="text-slate-500">Loading projects...</p>
+      <main
+        className="mx-auto min-h-dvh max-w-5xl px-4 py-8 sm:px-6 sm:py-10"
+        aria-busy="true"
+      >
+        <div className="mb-8 space-y-2">
+          <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
+          <div className="h-9 w-48 animate-pulse rounded-lg bg-slate-200" />
+        </div>
+        <div className="mb-8 h-40 animate-pulse rounded-2xl border border-slate-200 bg-white/60" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[0, 1].map((i) => (
+            <div
+              key={i}
+              className="h-36 animate-pulse rounded-2xl border border-slate-200 bg-white/60"
+            />
+          ))}
+        </div>
+        <span className="sr-only">Loading projects…</span>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-5xl px-6 py-10">
       <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">
@@ -191,9 +207,15 @@ export default function ProjectsPage() {
 
       <section className="grid gap-3 sm:grid-cols-2">
         {projects.length === 0 ? (
-          <p className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center text-slate-500">
-            No projects yet. Create your first workspace above.
-          </p>
+          <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white/50 px-6 py-12 text-center">
+            <p className="font-display text-lg font-semibold text-slate-800">
+              No projects yet
+            </p>
+            <p className="mx-auto mt-2 max-w-md text-sm text-slate-600">
+              A project is a workspace holding agents, knowledge bases, and every
+              execution trace they produce. Create one above to get started.
+            </p>
+          </div>
         ) : (
           projects.map((project) => (
             <article

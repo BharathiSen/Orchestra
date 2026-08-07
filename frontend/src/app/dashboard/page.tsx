@@ -47,15 +47,32 @@ export default function DashboardPage() {
   }
 
   if (loading) {
+    // Skeletons mirror the real layout so nothing jumps when data lands.
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6">
-        <p className="text-slate-500">Loading workspace...</p>
+      <main
+        className="mx-auto min-h-dvh max-w-5xl px-4 py-8 sm:px-6 sm:py-10"
+        aria-busy="true"
+      >
+        <div className="mb-10 space-y-2">
+          <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
+          <div className="h-9 w-56 animate-pulse rounded-lg bg-slate-200" />
+          <div className="h-4 w-72 animate-pulse rounded bg-slate-200" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white/60"
+            />
+          ))}
+        </div>
+        <span className="sr-only">Loading workspace…</span>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-5xl px-6 py-10">
       <header className="mb-10 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">

@@ -171,7 +171,7 @@ export default function LandingPage() {
   const showDemoCta = DEMO_ENABLED && !signedIn;
 
   return (
-    <main className="studio-landing min-h-screen">
+    <main className="studio-landing min-h-dvh">
       <section className="studio-hero px-6 pb-20 pt-16 md:pb-28 md:pt-20">
         <div className="mx-auto max-w-5xl">
           <p className="animate-fade-up font-display text-6xl font-bold tracking-tight text-ink sm:text-7xl md:text-8xl">

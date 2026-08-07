@@ -17,6 +17,61 @@ const emptyForm = {
   knowledge_base_ids: [] as number[],
 };
 
+/**
+ * What this agent can actually do, at a glance.
+ *
+ * Knowledge Base is per-agent configuration, so it reflects real state and is
+ * muted when nothing is attached. Tools, Memory, and Multi-Agent are platform
+ * capabilities every agent can use — Memory is always on, and the other two are
+ * switched per conversation from the chat header. They are shown as available
+ * rather than claimed as configured, so the badges stay truthful.
+ */
+function AgentCapabilities({ hasKnowledgeBase }: { hasKnowledgeBase: boolean }) {
+  const capabilities = [
+    {
+      label: "Knowledge Base",
+      active: hasKnowledgeBase,
+      title: hasKnowledgeBase
+        ? "Retrieves from attached documents on every turn"
+        : "No knowledge base attached — answers are ungrounded",
+    },
+    {
+      label: "Memory",
+      active: true,
+      title: "Redis conversation buffer plus durable facts across sessions",
+    },
+    {
+      label: "Tools",
+      active: true,
+      title: "Calculator, weather, and reference search — enable in chat",
+    },
+    {
+      label: "Multi-Agent",
+      active: true,
+      title: "Planner, Research, Writer, Reviewer — enable Orchestra in chat",
+    },
+  ];
+
+  return (
+    <ul className="mt-3 flex flex-wrap gap-1.5">
+      {capabilities.map((c) => (
+        <li
+          key={c.label}
+          title={c.title}
+          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+            c.active
+              ? "border-teal-200 bg-teal-50 text-teal-800"
+              : "border-slate-200 bg-slate-50 text-slate-400"
+          }`}
+        >
+          <span aria-hidden>{c.active ? "✓" : "○"}</span>
+          {c.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function ProjectDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -156,8 +211,23 @@ export default function ProjectDetailPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6">
-        <p className="text-slate-500">Loading agents...</p>
+      <main
+        className="mx-auto min-h-dvh max-w-5xl px-4 py-8 sm:px-6 sm:py-10"
+        aria-busy="true"
+      >
+        <div className="mb-8 space-y-2">
+          <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
+          <div className="h-9 w-64 animate-pulse rounded-lg bg-slate-200" />
+        </div>
+        <div className="space-y-3">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="h-40 animate-pulse rounded-2xl border border-slate-200 bg-white/60"
+            />
+          ))}
+        </div>
+        <span className="sr-only">Loading agents…</span>
       </main>
     );
   }
@@ -167,7 +237,7 @@ export default function ProjectDetailPage() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-5xl px-6 py-10">
       <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">
@@ -253,9 +323,23 @@ export default function ProjectDetailPage() {
 
       <section className="space-y-3">
         {agents.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-10 text-center text-slate-500">
-            No agents yet. Create your first agent for this project.
-          </p>
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white/50 px-6 py-12 text-center">
+            <p className="font-display text-lg font-semibold text-slate-800">
+              No agents yet
+            </p>
+            <p className="mx-auto mt-2 max-w-md text-sm text-slate-600">
+              An agent is a prompt, a model, and optionally a knowledge base.
+              Create one and you can chat with it, ground it in your documents,
+              and trace every run it produces.
+            </p>
+            <button
+              type="button"
+              onClick={openCreate}
+              className="touch-row mt-5 inline-flex items-center rounded-lg bg-accent px-5 text-sm font-semibold text-white hover:bg-teal-700"
+            >
+              Create your first agent
+            </button>
+          </div>
         ) : (
           agents.map((agent) => (
             <article
@@ -280,6 +364,9 @@ export default function ProjectDetailPage() {
                           .join(", ")
                       : "None"}
                   </p>
+                  <AgentCapabilities
+                    hasKnowledgeBase={Boolean(agent.knowledge_base_ids?.length)}
+                  />
                 </div>
                 <div className="flex gap-2">
                   <button

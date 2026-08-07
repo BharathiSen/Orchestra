@@ -82,7 +82,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl items-center px-6 py-12">
+    <main className="mx-auto flex min-h-dvh max-w-5xl items-center px-6 py-12">
       <section className="grid w-full gap-10 md:grid-cols-2 md:items-center">
         <div>
           <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">

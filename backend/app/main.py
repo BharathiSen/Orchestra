@@ -11,9 +11,14 @@ from app import models  # noqa: F401
 from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.database import Base, engine
-from app.core.middleware import MaxBodySizeMiddleware, SelectiveGZipMiddleware
+from app.core.middleware import (
+    MaxBodySizeMiddleware,
+    SecurityHeadersMiddleware,
+    SelectiveGZipMiddleware,
+)
 from app.core.redis_client import get_redis
 from app.core.startup_checks import run_startup_checks
+from app.knowledge.embedding import warm_up
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,6 +68,13 @@ async def lifespan(_: FastAPI):
         # production so an outage cannot leave the chat endpoint unmetered.
         logger.warning("Redis is not reachable at startup: %s", exc)
 
+    if settings.embedding_warmup_enabled:
+        # Deliberately blocking: the whole point is that no request can arrive
+        # before the model is ready. warm_up() never raises.
+        warm_up()
+    else:
+        logger.info("Embedding warm-up disabled; the model loads on first use.")
+
     logger.info(
         "Orchestra API ready (environment=%s, provider=%s, rate_limiting=%s)",
         settings.environment,
@@ -77,6 +89,10 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 # Order matters: the body-size guard runs outermost so an oversized upload is
 # rejected before any other middleware allocates work for it.
 app.add_middleware(MaxBodySizeMiddleware, max_bytes=settings.max_request_bytes)
+
+# Security headers are added close to the outside so they also cover responses
+# produced by the middlewares below (rate-limit 429s, gzip'd JSON, SSE starts).
+app.add_middleware(SecurityHeadersMiddleware, hsts=settings.is_production)
 
 if "*" not in settings.allowed_host_list:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_host_list)

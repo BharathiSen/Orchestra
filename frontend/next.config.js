@@ -1,10 +1,56 @@
 /** @type {import('next').NextConfig} */
+
+// The browser must be allowed to reach the API for both fetch and the chat
+// EventStream. Derived from the same variable the client uses, so the policy
+// cannot drift from the origin the app actually calls.
+const apiOrigin = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_API_URL || "http://localhost:18000").origin;
+  } catch {
+    return "http://localhost:18000";
+  }
+})();
+
+// Next.js injects inline bootstrap scripts and inline style tags with no nonce
+// in the App Router's static output, so 'unsafe-inline' is required for these
+// two directives. Everything else is locked to same-origin.
+const csp = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  `connect-src 'self' ${apiOrigin}`,
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join("; ");
+
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+  },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=31536000; includeSubDomains",
+  },
+  { key: "Content-Security-Policy", value: csp },
+];
+
 const nextConfig = {
   reactStrictMode: true,
   // Standalone emits a self-contained server bundle for the Docker runtime
   // stage. It is opt-in because the Cloudflare/OpenNext build produces its own
   // output and must not be switched to standalone.
   ...(process.env.NEXT_OUTPUT === "standalone" ? { output: "standalone" } : {}),
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders }];
+  },
 };
 
 module.exports = nextConfig;

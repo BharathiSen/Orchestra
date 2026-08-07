@@ -75,7 +75,7 @@ services:
       GROQ_DEFAULT_MODEL: ${GROQ_DEFAULT_MODEL:-llama-3.1-8b-instant}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash}
-      UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/data/uploads}
       MEMORY_BUFFER_SIZE: ${MEMORY_BUFFER_SIZE:-10}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       CHAT_RATE_LIMIT_PER_MINUTE: ${CHAT_RATE_LIMIT_PER_MINUTE:-10}
@@ -86,7 +86,7 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
-      - upload_data:/app/uploads
+      - upload_data:/data/uploads
     depends_on:
       postgres:
         condition: service_healthy

@@ -34,6 +34,65 @@ class SelectiveGZipMiddleware(GZipMiddleware):
         await super().__call__(scope, receive, send)
 
 
+class SecurityHeadersMiddleware:
+    """Attach hardening headers to every HTTP response.
+
+    Implemented at the ASGI layer and applied only to the
+    ``http.response.start`` message, so streamed bodies are untouched — the
+    headers are already flushed before the first SSE chunk is written.
+
+    The CSP here is deliberately strict because this app serves JSON and
+    event-streams only: no scripts, styles, or images originate from it. The
+    browser-facing CSP that has to accommodate Next.js lives in the frontend's
+    own header config.
+    """
+
+    CSP = (
+        "default-src 'none'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'none'; "
+        "form-action 'none'"
+    )
+
+    def __init__(self, app: ASGIApp, *, hsts: bool) -> None:
+        self.app = app
+        # Only advertise HSTS where TLS actually terminates. Sending it over
+        # plain HTTP in local development would pin localhost to https.
+        self.hsts = hsts
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = message.setdefault("headers", [])
+                already_set = {name.lower() for name, _ in headers}
+                for name, value in self._headers():
+                    key = name.lower().encode()
+                    if key not in already_set:
+                        headers.append((name.encode(), value.encode()))
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+    def _headers(self) -> list[tuple[str, str]]:
+        headers = [
+            ("X-Content-Type-Options", "nosniff"),
+            ("X-Frame-Options", "DENY"),
+            ("Referrer-Policy", "strict-origin-when-cross-origin"),
+            ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()"),
+            ("Content-Security-Policy", self.CSP),
+            ("Cross-Origin-Opener-Policy", "same-origin"),
+        ]
+        if self.hsts:
+            headers.append(
+                ("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            )
+        return headers
+
+
 class MaxBodySizeMiddleware:
     """Reject request bodies larger than ``max_bytes``.
 

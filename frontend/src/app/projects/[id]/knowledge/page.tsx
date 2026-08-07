@@ -232,7 +232,7 @@ export default function KnowledgePage() {
 
   if (loading) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-6">
+      <main className="mx-auto flex min-h-dvh max-w-6xl items-center justify-center px-6">
         <p className="text-slate-500">Loading knowledge base...</p>
       </main>
     );
@@ -244,7 +244,7 @@ export default function KnowledgePage() {
   const selectedDoc = documents.find((doc) => doc.id === selectedDocId) ?? null;
 
   return (
-    <main className="mx-auto min-h-screen max-w-6xl px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-6xl px-6 py-10">
       <header className="mb-2">
         <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">
           Orchestra

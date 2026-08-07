@@ -604,6 +604,10 @@ export default function ProjectChatPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [replayBanner, setReplayBanner] = useState(false);
+  // Conversation list is a slide-over drawer below `lg` so the chat itself is
+  // always the primary view on a phone. At `lg` and above the same markup is a
+  // static grid column and this flag is ignored.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const replayAppliedRef = useRef(false);
   // Message history API does not persist RAG/tool/graph UI extras.
@@ -1042,8 +1046,19 @@ export default function ProjectChatPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-[1400px] items-center justify-center px-4 md:px-6 lg:px-8">
-        <p className="text-slate-500">Loading chat...</p>
+      <main className="mx-auto flex min-h-dvh w-full max-w-[1400px] flex-col gap-4 px-4 py-6 md:px-6 lg:px-8">
+        <div className="h-9 w-48 animate-pulse rounded-lg bg-slate-200" />
+        <div className="h-4 w-72 animate-pulse rounded bg-slate-200" />
+        <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <div className="hidden animate-pulse rounded-2xl border border-slate-200 bg-slate-100/70 lg:block" />
+          <div className="flex min-h-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-white/80 p-4">
+            <div className="h-10 w-full animate-pulse rounded-lg bg-slate-200" />
+            <div className="h-16 w-3/4 animate-pulse rounded-2xl bg-slate-200" />
+            <div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-slate-200" />
+            <div className="h-20 w-2/3 animate-pulse rounded-2xl bg-slate-200" />
+          </div>
+        </div>
+        <span className="sr-only">Loading chat…</span>
       </main>
     );
   }
@@ -1051,46 +1066,47 @@ export default function ProjectChatPage() {
   if (!project) return null;
 
   return (
-    <main className="mx-auto flex h-screen w-full max-w-[1400px] flex-col overflow-hidden px-4 py-6 md:px-6 lg:px-8">
-      <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">
+    <main className="mx-auto flex h-dvh w-full max-w-[1400px] flex-col overflow-hidden px-3 py-4 sm:px-4 md:px-6 md:py-6 lg:px-8">
+      <header className="mb-3 flex flex-wrap items-start justify-between gap-3 md:mb-4">
+        <div className="min-w-0">
+          <p className="font-display text-xs font-semibold tracking-[0.2em] text-accent uppercase sm:text-sm">
             Orchestra
           </p>
-          <h1 className="mt-1 font-display text-2xl font-bold md:text-3xl">
+          <h1 className="mt-1 truncate font-display text-xl font-bold sm:text-2xl md:text-3xl">
             Chat · {project.name}
           </h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 hidden text-sm text-slate-600 sm:block">
             Multi-agent Orchestra with Redis conversation memory and long-term
             preferences.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <nav className="flex flex-wrap gap-2" aria-label="Project sections">
           <Link
             href={`/projects/${projectId}`}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+            className="touch-row inline-flex items-center rounded-lg border border-slate-300 px-3 text-sm font-medium hover:bg-white"
           >
             Agents
           </Link>
           <Link
             href={`/projects/${projectId}/knowledge`}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+            className="touch-row inline-flex items-center rounded-lg border border-slate-300 px-3 text-sm font-medium hover:bg-white"
           >
-            Knowledge Base
+            <span className="sm:hidden">Knowledge</span>
+            <span className="hidden sm:inline">Knowledge Base</span>
           </Link>
           <Link
             href={`/projects/${projectId}/observability`}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+            className="touch-row inline-flex items-center rounded-lg border border-slate-300 px-3 text-sm font-medium hover:bg-white"
           >
             Observability
           </Link>
           <Link
             href="/dashboard"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+            className="touch-row inline-flex items-center rounded-lg border border-slate-300 px-3 text-sm font-medium hover:bg-white"
           >
             Dashboard
           </Link>
-        </div>
+        </nav>
       </header>
 
       {!llmConfigured && (
@@ -1124,25 +1140,56 @@ export default function ProjectChatPage() {
       )}
 
       <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="min-h-0 rounded-2xl border border-slate-200 bg-white/80 p-3">
+        {/* Backdrop for the drawer. Only below `lg`, where the aside is fixed. */}
+        {sidebarOpen && (
+          <button
+            type="button"
+            aria-label="Close conversations"
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-30 bg-slate-900/40 lg:hidden"
+          />
+        )}
+
+        <aside
+          id="conversation-drawer"
+          aria-label="Conversations"
+          className={`min-h-0 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3 transition-transform duration-200 ease-out
+            max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-40 max-lg:w-[86%] max-lg:max-w-[330px] max-lg:rounded-none max-lg:shadow-xl
+            ${sidebarOpen ? "max-lg:translate-x-0" : "max-lg:-translate-x-full"}
+            lg:bg-white/80`}
+        >
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-slate-700">Conversations</h2>
-            <button
-              type="button"
-              onClick={onNewChat}
-              className="rounded-md bg-ink px-2 py-1 text-xs font-medium text-white"
-            >
-              New
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={onNewChat}
+                className="touch-row inline-flex items-center rounded-md bg-ink px-3 text-xs font-medium text-white"
+              >
+                New
+              </button>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                aria-label="Close conversations"
+                className="touch-target inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 lg:hidden"
+              >
+                <span aria-hidden className="text-xl leading-none">×</span>
+              </button>
+            </div>
           </div>
-          <ul className="mb-3 max-h-[40vh] space-y-1 overflow-y-auto">
+          <ul className="mb-3 space-y-1 lg:max-h-[40vh] lg:overflow-y-auto">
             {conversations.length === 0 && (
-              <li className="px-2 py-3 text-xs text-slate-500">No chats yet.</li>
+              <li className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-xs text-slate-500">
+                No conversations yet.
+                <br />
+                Send a message to start one.
+              </li>
             )}
             {conversations.map((c) => (
               <li key={c.id}>
                 <div
-                  className={`flex items-center gap-1 rounded-lg px-2 py-2 text-sm ${
+                  className={`flex items-center gap-1 rounded-lg px-2 text-sm ${
                     activeConversationId === c.id
                       ? "bg-teal-50 text-teal-900"
                       : "hover:bg-slate-50"
@@ -1150,18 +1197,21 @@ export default function ProjectChatPage() {
                 >
                   <button
                     type="button"
-                    className="min-w-0 flex-1 truncate text-left"
-                    onClick={() => onSelectConversation(c.id)}
+                    className="touch-row min-w-0 flex-1 truncate text-left"
+                    onClick={() => {
+                      onSelectConversation(c.id);
+                      setSidebarOpen(false);
+                    }}
                   >
                     {c.title}
                   </button>
                   <button
                     type="button"
-                    className="text-xs text-red-600"
+                    className="touch-target inline-flex shrink-0 items-center justify-center rounded-md text-red-600 hover:bg-red-50"
                     onClick={() => onDeleteConversation(c.id)}
-                    aria-label="Delete conversation"
+                    aria-label={`Delete conversation ${c.title}`}
                   >
-                    ×
+                    <span aria-hidden className="text-lg leading-none">×</span>
                   </button>
                 </div>
               </li>
@@ -1178,14 +1228,24 @@ export default function ProjectChatPage() {
           />
         </aside>
 
-        <section className="min-h-0 flex flex-col rounded-2xl border border-slate-200 bg-white/80">
-          <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 p-3">
+        <section className="flex min-h-0 flex-col rounded-2xl border border-slate-200 bg-white/80">
+          <div className="flex flex-wrap items-end gap-2 border-b border-slate-200 p-3 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              aria-expanded={sidebarOpen}
+              aria-controls="conversation-drawer"
+              className="touch-row inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-medium hover:bg-white lg:hidden"
+            >
+              <span aria-hidden className="text-base leading-none">☰</span>
+              Chats
+            </button>
             <label className="text-xs text-slate-600">
               Model
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                className="touch-row mt-1 block rounded-lg border border-slate-300 px-2 text-sm"
               >
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -1201,17 +1261,20 @@ export default function ProjectChatPage() {
                 onChange={(e) =>
                   setAgentId(e.target.value ? Number(e.target.value) : "")
                 }
-                className="mt-1 block max-w-[220px] rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                className="touch-row mt-1 block max-w-[220px] rounded-lg border border-slate-300 px-2 text-sm"
               >
                 <option value="">Default mentor prompt</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
+                    {a.knowledge_base_ids && a.knowledge_base_ids.length > 0
+                      ? " · KB"
+                      : ""}
                   </option>
                 ))}
               </select>
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="touch-row flex flex-col justify-center text-xs text-slate-600">
               Temperature ({temperature.toFixed(1)})
               <input
                 type="range"
@@ -1220,10 +1283,11 @@ export default function ProjectChatPage() {
                 step={0.1}
                 value={temperature}
                 onChange={(e) => setTemperature(Number(e.target.value))}
-                className="mt-2 block w-40"
+                aria-label={`Temperature ${temperature.toFixed(1)}`}
+                className="mt-2 block h-6 w-40 cursor-pointer"
               />
             </label>
-            <label className="inline-flex items-center gap-2 rounded-lg border-2 border-indigo-500 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-950">
+            <label className="touch-row inline-flex items-center gap-2 rounded-lg border-2 border-indigo-500 bg-indigo-50 px-3 text-sm font-semibold text-indigo-950">
               <input
                 type="checkbox"
                 checked={enableOrchestra}
@@ -1232,12 +1296,12 @@ export default function ProjectChatPage() {
                   setEnableOrchestra(on);
                   if (on) setEnableTools(false);
                 }}
-                className="h-4 w-4"
+                className="h-5 w-5"
               />
               Orchestra {enableOrchestra ? "(ON)" : "(OFF)"}
             </label>
             <label
-              className={`inline-flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm font-semibold ${
+              className={`touch-row inline-flex items-center gap-2 rounded-lg border-2 px-3 text-sm font-semibold ${
                 enableOrchestra
                   ? "border-slate-200 bg-slate-50 text-slate-400"
                   : "border-teal-500 bg-teal-50 text-teal-900"
@@ -1248,9 +1312,9 @@ export default function ProjectChatPage() {
                 checked={enableTools}
                 disabled={enableOrchestra}
                 onChange={(e) => setEnableTools(e.target.checked)}
-                className="h-4 w-4"
+                className="h-5 w-5"
               />
-              Enable tools {enableTools ? "(ON)" : "(OFF)"}
+              Tools {enableTools ? "(ON)" : "(OFF)"}
             </label>
           </div>
 
@@ -1300,26 +1364,39 @@ export default function ProjectChatPage() {
             <div ref={bottomRef} />
           </div>
 
-          <form onSubmit={onSend} className="border-t border-slate-200 p-3">
+          {/* sticky + pb-safe keeps the composer above the iOS home indicator
+              and the Android gesture bar; the parent is h-dvh so it never sits
+              under a collapsing browser chrome. */}
+          <form
+            onSubmit={onSend}
+            className="pb-safe sticky bottom-0 z-10 border-t border-slate-200 bg-white/95 px-3 pt-3 backdrop-blur"
+          >
             {replayBanner && (
               <p className="mb-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-900">
                 Replay loaded — same prompt and pipeline flags are ready. Press
                 Send to re-run, then compare in Observability.
               </p>
             )}
-            <div className="flex gap-2">
+            <div className="flex items-end gap-2">
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 rows={2}
-                placeholder="Ask something that needs a tool…"
-                className="min-h-[48px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-accent focus:ring-2"
+                placeholder={
+                  enableOrchestra
+                    ? "Ask something that needs multiple agents…"
+                    : enableTools
+                      ? "Ask something that needs a tool…"
+                      : "Ask anything…"
+                }
+                aria-label="Message"
+                className="min-h-[48px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-base outline-none ring-accent focus:ring-2 sm:text-sm"
                 disabled={sending}
               />
               <button
                 type="submit"
                 disabled={sending || !input.trim()}
-                className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+                className="touch-target inline-flex items-center justify-center rounded-xl bg-accent px-5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
               >
                 {sending ? "…" : "Send"}
               </button>

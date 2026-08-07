@@ -19,7 +19,31 @@ body {
     radial-gradient(circle at 10% 10%, rgba(13, 148, 136, 0.12), transparent 35%),
     radial-gradient(circle at 90% 0%, rgba(15, 23, 42, 0.06), transparent 30%),
     linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  /* 100vh on mobile browsers includes the collapsing URL bar, so a full-height
+     layout gets clipped and anything pinned to the bottom slides out of view.
+     dvh tracks the visible viewport; the vh line is the fallback for browsers
+     that do not support it. */
   min-height: 100vh;
+  min-height: 100dvh;
+}
+
+@layer utilities {
+  /* Keeps the composer clear of the iOS home indicator and Android gesture bar
+     without adding dead space on hardware that has neither. */
+  .pb-safe {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  /* The 44x44 minimum from the Apple HIG and WCAG 2.5.5. Applied to controls
+     that are visually small but must stay comfortably tappable. */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .touch-row {
+    min-height: 44px;
+  }
 }
 
 @keyframes fade-up {
