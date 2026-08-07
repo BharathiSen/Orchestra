@@ -68,7 +68,6 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-llama3.2}
       UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
-      DEMO_EMAIL: ${DEMO_EMAIL:-}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

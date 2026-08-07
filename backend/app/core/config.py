@@ -43,10 +43,6 @@ class Settings(BaseSettings):
     chat_daily_token_budget: int = 200_000
     signup_rate_limit_per_hour: int = 5
 
-    # Email of the shared demo account, if one is seeded. Used only to decide
-    # whether the frontend shows its demo banner; it grants no privileges.
-    demo_email: str = ""
-
     # gemini | groq | ollama
     # Use groq/ollama for free local testing; gemini for production.
     llm_provider: str = "groq"

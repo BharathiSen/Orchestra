@@ -460,8 +460,10 @@ def seed(*, email: str, password: str, reset: bool, skip_embeddings: bool) -> No
     print("\nDemo workspace ready.")
     print(f"  email:    {email}")
     print(f"  password: {password}")
-    print("\nSet DEMO_EMAIL on the backend and NEXT_PUBLIC_DEMO_EMAIL /")
-    print("NEXT_PUBLIC_DEMO_PASSWORD on the frontend to surface the demo button.")
+    print("\nTo surface the demo button and banner, set these on the FRONTEND")
+    print("build (they are inlined at build time, so a redeploy is required):")
+    print(f"  NEXT_PUBLIC_DEMO_EMAIL={email}")
+    print("  NEXT_PUBLIC_DEMO_PASSWORD=<the password above>")
 
 
 def main() -> None:
