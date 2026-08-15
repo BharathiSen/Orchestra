@@ -189,7 +189,6 @@ the person across projects.
 - React 19 · TypeScript 5.7
 - Tailwind CSS 3.4
 - react-markdown 9 + remark-gfm
-- GSAP (landing animation)
 
 </td><td valign="top">
 

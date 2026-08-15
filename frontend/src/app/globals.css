@@ -7,10 +7,6 @@
 :root {
   --font-space: "Space Grotesk", sans-serif;
   --font-geist-sans: "IBM Plex Sans", sans-serif;
-  --studio-paper: #ecebe7;
-  --studio-ink: #1c1917;
-  --studio-line: #cdc9c0;
-  --studio-teal: #0f766e;
 }
 
 body {
@@ -97,317 +93,326 @@ body {
   animation: chrome-rise 1s ease-out 0.28s both;
 }
 
-/* —— Landing: Studio direction —— */
-.studio-landing {
-  color: var(--studio-ink);
-  background-color: var(--studio-paper);
+
+/* ============================================================================
+   Landing page — "Trace" direction
+   ----------------------------------------------------------------------------
+   The marketing page is dark while the app shell is light. That is deliberate:
+   the landing page has one job, which is to show what an execution record looks
+   like, and a dark instrument panel reads as tooling in a way the light app
+   chrome does not. Everything here is prefixed `lp-` and used by src/app/page.tsx
+   only, so it cannot leak into the workspace.
+
+   Two accents with two jobs, never swapped:
+     --lp-beam    brand and actions (teal, carried over from the app)
+     --lp-signal  money and measurement (amber)
+   ========================================================================== */
+
+.lp {
+  --lp-ground: #0b0f14;
+  --lp-panel: #141a22;
+  --lp-raised: #1a212b;
+  --lp-line: #232b36;
+  --lp-ink: #e8edf4;
+  --lp-dim: #8a94a2;
+  --lp-beam: #2dd4bf;
+  --lp-signal: #e0a44a;
+  --lp-ok: #4ade80;
+
+  background-color: var(--lp-ground);
+  color: var(--lp-ink);
   background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.35), transparent 28%),
-    radial-gradient(ellipse at 50% 0%, rgba(15, 118, 110, 0.08), transparent 55%),
-    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(45, 212, 191, 0.09), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 85% 5%, rgba(224, 164, 74, 0.05), transparent 70%);
 }
 
-.studio-hero {
-  position: relative;
-  overflow: hidden;
+.lp-rule {
+  border-top: 1px solid var(--lp-line);
 }
 
-.studio-hero-visual {
-  width: 100%;
+/* —— shared furniture —————————————————————————————————————————————— */
+
+.lp-eyebrow {
+  font-family: theme("fontFamily.mono");
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lp-beam);
 }
 
-.studio-cta {
+.lp-cta {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0.5rem;
-  background: var(--studio-teal);
-  padding: 0.7rem 1.35rem;
+  border-radius: 0.4rem;
+  background: var(--lp-beam);
+  padding: 0.7rem 1.4rem;
   font-size: 0.875rem;
-  font-weight: 600;
-  color: #fff;
-  transition: background-color 0.2s ease, transform 0.2s ease;
+  font-weight: 650;
+  color: #05201d;
+  transition: background-color 0.18s ease, transform 0.18s ease;
 }
 
-.studio-cta:hover {
-  background: #0d5f59;
+.lp-cta:hover {
+  background: #5eead4;
   transform: translateY(-1px);
 }
 
-.studio-hero + .studio-section,
-.studio-section + .studio-section,
-.studio-section + .studio-cta-band {
-  border-top: 1px solid rgba(205, 201, 192, 0.9);
-}
-
-.studio-section-soft {
-  background: rgba(255, 255, 255, 0.28);
-}
-
-.studio-cta-band {
-  border-top: 1px solid rgba(214, 208, 198, 0.85);
-  background:
-    linear-gradient(90deg, rgba(15, 118, 110, 0.08), transparent 45%),
-    rgba(255, 255, 255, 0.4);
-}
-
-.studio-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid rgba(15, 118, 110, 0.28);
-  background: rgba(15, 118, 110, 0.08);
-  padding: 0.3rem 0.7rem;
-  font-family: var(--font-space), sans-serif;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--studio-teal);
-}
-
-@property --border-angle {
-  syntax: "<angle>";
-  inherits: true;
-  initial-value: 0deg;
-}
-
-@keyframes border-spin {
-  to {
-    --border-angle: 360deg;
-  }
-}
-
-.studio-shimmer-card {
-  list-style: none;
-  border: 1.5px solid transparent;
-  border-radius: 1rem;
-  background:
-    linear-gradient(#faf9f6, #faf9f6) padding-box,
-    conic-gradient(
-      from var(--border-angle),
-      rgba(15, 118, 110, 0.12) 75%,
-      #0f766e 84%,
-      #5eead4 90%,
-      #0d9488 94%,
-      rgba(15, 118, 110, 0.12)
-    )
-    border-box;
-  animation: border-spin 7s linear infinite;
-}
-
-.studio-shimmer-inner {
-  position: relative;
-  height: 100%;
-  overflow: hidden;
-  border-radius: calc(1rem - 1.5px);
-  background: rgba(250, 249, 246, 0.96);
-  padding: 1.35rem 1.25rem 1.5rem;
-}
-
-.studio-shimmer-num {
-  position: absolute;
-  top: 0.6rem;
-  right: 0.9rem;
-  font-family: var(--font-space), sans-serif;
-  font-size: 3.25rem;
-  font-weight: 700;
-  line-height: 1;
-  color: rgba(15, 118, 110, 0.1);
-  pointer-events: none;
-}
-
-.studio-shimmer-icon {
+.lp-cta-ghost {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.35rem;
-  height: 2.35rem;
-  border: 1px solid rgba(15, 118, 110, 0.22);
-  background: rgba(15, 118, 110, 0.08);
-  color: var(--studio-teal);
-}
-
-.studio-cap-tile {
-  list-style: none;
-  border: 1px solid var(--studio-line);
-  background: rgba(255, 255, 255, 0.72);
-  padding: 1.25rem 1.2rem 1.4rem;
-  transition: border-color 0.2s ease, background-color 0.2s ease;
-}
-
-.studio-cap-tile:hover {
-  border-color: rgba(15, 118, 110, 0.45);
-  background: rgba(255, 255, 255, 0.92);
-}
-
-.studio-cap-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.35rem;
-  height: 2.35rem;
-  border: 1px solid rgba(15, 118, 110, 0.22);
-  background: rgba(15, 118, 110, 0.08);
-  color: var(--studio-teal);
-}
-
-.studio-chrome {
-  overflow: hidden;
-  border: 1px solid var(--studio-line);
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.studio-chrome-hero {
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  width: 100%;
-  max-width: none;
-}
-
-.studio-chrome-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  border-bottom: 1px solid var(--studio-line);
-  background: rgba(243, 240, 234, 0.9);
-  padding: 0.65rem 1rem;
-}
-
-.studio-chrome-dot {
-  height: 0.45rem;
-  width: 0.45rem;
-  border-radius: 9999px;
-  background: #c4bdb2;
-}
-
-.studio-chrome-title {
-  margin-left: 0.75rem;
-  font-family: var(--font-space), sans-serif;
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  color: #57534e;
-}
-
-.studio-chrome-body {
-  display: grid;
-  min-height: 14rem;
-  grid-template-columns: 7.5rem 1fr;
-}
-
-@media (min-width: 768px) {
-  .studio-chrome-body {
-    min-height: 18rem;
-    grid-template-columns: 9.5rem 1fr;
-  }
-
-  .studio-chrome-hero .studio-chrome-body {
-    min-height: 22rem;
-  }
-}
-
-.studio-chrome-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  border-right: 1px solid var(--studio-line);
-  background: rgba(243, 240, 234, 0.55);
-  padding: 1rem 0.85rem;
-  font-size: 0.7rem;
-  color: #78716c;
-}
-
-.studio-chrome-nav .is-active {
-  color: var(--studio-teal);
+  border-radius: 0.4rem;
+  border: 1px solid var(--lp-line);
+  padding: 0.7rem 1.3rem;
+  font-size: 0.875rem;
   font-weight: 600;
+  color: var(--lp-ink);
+  transition: border-color 0.18s ease, color 0.18s ease;
 }
 
-.studio-chrome-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1.1rem 1.15rem;
+.lp-cta-ghost:hover {
+  border-color: var(--lp-beam);
+  color: var(--lp-beam);
 }
 
-.studio-bubble {
-  max-width: 85%;
-  border: 1px solid var(--studio-line);
-  padding: 0.75rem 0.9rem;
+.lp-link:hover {
+  color: var(--lp-beam);
 }
 
-.studio-bubble.user {
-  align-self: flex-end;
-  background: rgba(255, 255, 255, 0.9);
+.lp :is(a, button):focus-visible {
+  outline: 2px solid var(--lp-beam);
+  outline-offset: 3px;
 }
 
-.studio-bubble.agent {
-  align-self: flex-start;
-  background: rgba(15, 118, 110, 0.06);
-}
+/* —— proof strip ——————————————————————————————————————————————————— */
 
-.studio-bubble.soft {
-  opacity: 0.72;
-}
-
-.studio-line {
-  height: 0.45rem;
-  width: 100%;
-  border-radius: 9999px;
-  background: #d6d0c6;
-}
-
-.studio-line.short {
-  width: 42%;
-}
-
-.studio-line.mid {
-  width: 68%;
-}
-
-.studio-line.wide {
-  width: 55%;
-  margin-bottom: 0.35rem;
-}
-
-.studio-pipeline {
+.lp-proof {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  gap: 1.5rem;
+  font-family: theme("fontFamily.mono");
+  font-size: 0.72rem;
+  color: var(--lp-dim);
 }
 
-.studio-pipeline span {
-  border: 1px solid var(--studio-line);
-  background: rgba(255, 255, 255, 0.85);
-  padding: 0.35rem 0.6rem;
-  font-family: var(--font-space), sans-serif;
-  font-size: 0.7rem;
+.lp-proof b {
+  color: var(--lp-ink);
   font-weight: 600;
-  color: #44403c;
 }
 
-.studio-trace {
+/* —— execution trace card (the hero's proof) ——————————————————————— */
+
+.lp-trace {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--lp-line);
+  border-radius: 0.7rem;
+  background: var(--lp-panel);
+  box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.9);
+}
+
+.lp-trace-head {
   display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--lp-line);
+  padding: 0.7rem 0.95rem;
+  font-family: theme("fontFamily.mono");
+  font-size: 0.7rem;
+  color: var(--lp-dim);
 }
 
-.studio-trace-row {
-  height: 2rem;
-  border: 1px solid var(--studio-line);
-  background: rgba(255, 255, 255, 0.65);
+.lp-badge {
+  flex-shrink: 0;
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--lp-ok);
 }
 
-.studio-trace-row.filled {
-  background: linear-gradient(
-    90deg,
-    rgba(15, 118, 110, 0.18),
-    rgba(15, 118, 110, 0.05) 70%,
-    transparent
-  );
+.lp-trace-row {
+  display: grid;
+  grid-template-columns: 4.6rem 1fr 3.5rem 3rem;
+  align-items: center;
+  gap: 0.75rem;
+  border-bottom: 1px solid rgba(35, 43, 54, 0.6);
+  padding: 0.55rem 0.95rem;
+  font-family: theme("fontFamily.mono");
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.studio-trace-row.mid {
-  width: 78%;
+.lp-trace-step {
+  color: var(--lp-ink);
+}
+
+/* A gantt lane: each bar is offset by where the step started, so the row
+   reads as a timeline rather than four unrelated progress bars. */
+.lp-lane {
+  position: relative;
+  height: 0.3rem;
+  border-radius: 999px;
+  background: #080b0f;
+}
+
+.lp-lane i {
+  position: absolute;
+  top: 0;
+  height: 0.3rem;
+  border-radius: 999px;
+  background: var(--lp-beam);
+  opacity: 0.85;
+}
+
+.lp-trace-num {
+  text-align: right;
+  color: var(--lp-dim);
+}
+
+.lp-trace-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: #10151c;
+  padding: 0.7rem 0.95rem;
+  font-family: theme("fontFamily.mono");
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--lp-dim);
+}
+
+.lp-cost {
+  color: var(--lp-signal);
+  font-weight: 600;
+}
+
+/* —— live SSE stream ——————————————————————————————————————————————— */
+
+.lp-term {
+  overflow: hidden;
+  border: 1px solid var(--lp-line);
+  border-radius: 0.7rem;
+  background: #080b0f;
+}
+
+.lp-term-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--lp-line);
+  padding: 0.65rem 0.95rem;
+  font-family: theme("fontFamily.mono");
+  font-size: 0.68rem;
+  color: var(--lp-dim);
+}
+
+.lp-term-body {
+  padding: 0.85rem 0.95rem 1rem;
+  font-family: theme("fontFamily.mono");
+  font-size: 0.72rem;
+  line-height: 1.95;
+}
+
+.lp-ev {
+  display: grid;
+  grid-template-columns: 3.4rem 9.5rem 1fr;
+  gap: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.lp-ev-t { color: #4d5764; }
+.lp-ev-n { color: var(--lp-beam); }
+.lp-ev-v { color: var(--lp-dim); overflow: hidden; text-overflow: ellipsis; }
+.lp-ev-v b { color: var(--lp-ink); font-weight: 500; }
+.lp-ev-v .lp-cost { font-weight: 600; }
+
+/* Staged reveal, played once when the section scrolls into view. The events
+   arrive in the order the real endpoint emits them, so the animation is the
+   claim rather than decoration. */
+.lp-ev {
+  opacity: 0;
+  transform: translateY(3px);
+}
+
+.lp-term.is-live .lp-ev {
+  animation: lp-ev-in 0.32s ease-out both;
+  animation-delay: calc(var(--i) * 0.34s);
+}
+
+@keyframes lp-ev-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.lp-caret {
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.8rem;
+  vertical-align: -0.1rem;
+  background: var(--lp-beam);
+  opacity: 0;
+}
+
+.lp-term.is-live .lp-caret {
+  animation: lp-caret-in 0.01s linear 2.7s forwards, lp-blink 1.05s steps(2, start) 2.7s infinite;
+}
+
+@keyframes lp-caret-in { to { opacity: 1; } }
+@keyframes lp-blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+
+/* —— capability tiles ——————————————————————————————————————————————— */
+
+.lp-tile {
+  list-style: none;
+  border: 1px solid var(--lp-line);
+  border-radius: 0.6rem;
+  background: var(--lp-panel);
+  padding: 1.15rem 1.15rem 1.3rem;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.lp-tile:hover {
+  border-color: rgba(45, 212, 191, 0.4);
+  background: var(--lp-raised);
+}
+
+.lp-tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid rgba(45, 212, 191, 0.25);
+  border-radius: 0.45rem;
+  background: rgba(45, 212, 191, 0.08);
+  color: var(--lp-beam);
+}
+
+/* Motion is a nicety here, never load-bearing: with it suppressed the events
+   are simply all present from the start. */
+@media (prefers-reduced-motion: reduce) {
+  .lp-ev,
+  .lp-term.is-live .lp-ev {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .lp-term.is-live .lp-caret {
+    animation: none;
+    opacity: 1;
+  }
+
+  .lp-cta:hover {
+    transform: none;
+  }
 }

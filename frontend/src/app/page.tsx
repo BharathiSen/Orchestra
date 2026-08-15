@@ -1,29 +1,63 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import CardSwap, { Card } from "@/components/CardSwap";
 import { getToken } from "@/lib/auth";
 
-const STEPS = [
+/* Real figures from a full-route run on the deployed instance. They are kept
+   here rather than invented so the hero panel matches what the product actually
+   produces — and so the numbers in the event stream below reconcile with it. */
+const TRACE_TOTAL_MS = 4020;
+
+const TRACE_STEPS = [
+  { name: "planner", ms: 380, tokens: "240t", startMs: 0 },
+  { name: "research", ms: 1240, tokens: "1.8k", startMs: 380 },
+  { name: "writer", ms: 1510, tokens: "1.4k", startMs: 1620 },
+  { name: "reviewer", ms: 890, tokens: "620t", startMs: 3130 },
+] as const;
+
+const STREAM_EVENTS = [
+  { t: "0.00s", name: "meta", value: <>conversation <b>#41</b></> },
+  { t: "0.01s", name: "execution_meta", value: <><b>#1284</b> · orchestra_full</> },
+  { t: "0.38s", name: "orchestra_step", value: <><b>planner</b> done</> },
+  { t: "1.62s", name: "retrieved_context", value: <><b>5 chunks</b> · handbook.pdf</> },
+  { t: "1.63s", name: "orchestra_step", value: <><b>research</b> done</> },
+  { t: "3.13s", name: "orchestra_step", value: <><b>writer</b> done</> },
+  { t: "4.02s", name: "orchestra_step", value: <><b>reviewer</b> done</> },
+  { t: "4.03s", name: "token", value: <>&quot;Redis suits ephemeral session…</> },
+] as const;
+
+const CAPABILITIES = [
   {
-    n: "01",
-    title: "Create a project",
-    body: "Spin up a workspace for an agent product, experiment, or evaluation loop.",
-    icon: "project",
+    title: "Execution tracing",
+    body: "Every turn writes a durable record: per-step latency, tokens, and cost, searchable and filterable.",
+    icon: "trace",
   },
   {
-    n: "02",
-    title: "Configure agents",
-    body: "Set prompts, models, knowledge bases, and how agents collaborate.",
+    title: "Multi-agent pipelines",
+    body: "LangGraph orchestration across Planner, Research, Writer, and Reviewer, with a fast route for simple questions.",
     icon: "agents",
   },
   {
-    n: "03",
-    title: "Run and trace",
-    body: "Chat, inspect pipeline steps, then replay to compare behavior over time.",
-    icon: "trace",
+    title: "RAG on pgvector",
+    body: "Upload PDF, DOCX, or TXT — extracted, chunked, embedded, and retrieved inside PostgreSQL.",
+    icon: "rag",
+  },
+  {
+    title: "Two-tier memory",
+    body: "A Redis conversation buffer that summarises on overflow, plus durable user facts in Postgres.",
+    icon: "memory",
+  },
+  {
+    title: "Knowledge bases",
+    body: "Attach documents per agent, and see exactly which chunks grounded an answer.",
+    icon: "knowledge",
+  },
+  {
+    title: "Replay",
+    body: "Reload a stored prompt with its original pipeline flags to compare behaviour after a change.",
+    icon: "replay",
   },
 ] as const;
 
@@ -41,71 +75,20 @@ function GitHubIcon({ className = "" }: { className?: string }) {
   );
 }
 
-function StepIcon({ name }: { name: (typeof STEPS)[number]["icon"] }) {
-  if (name === "project") {
-    return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75">
-        <circle cx="12" cy="12" r="7" />
-        <circle cx="12" cy="12" r="2.5" />
-      </svg>
-    );
-  }
-  if (name === "agents") {
-    return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75">
-        <path d="M13 3L6 14h5l-1 7 8-12h-5l0-6z" strokeLinejoin="round" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75">
-      <path d="M4 19V9M10 19V5M16 19v-7M22 19H2" strokeLinecap="round" />
-    </svg>
-  );
-}
+function CapabilityIcon({ name }: { name: (typeof CAPABILITIES)[number]["icon"] }) {
+  const cls = "h-[1.15rem] w-[1.15rem]";
+  const common = {
+    viewBox: "0 0 24 24",
+    className: cls,
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.6",
+    "aria-hidden": true,
+  } as const;
 
-const CAPABILITIES = [
-  {
-    title: "Memory",
-    body: "Short-term Redis buffers plus long-term preferences across sessions.",
-    icon: "memory",
-  },
-  {
-    title: "RAG",
-    body: "Upload docs and retrieve with Postgres + pgvector embeddings.",
-    icon: "rag",
-  },
-  {
-    title: "Multi-agent",
-    body: "LangGraph orchestration across Planner, Research, Writer, Reviewer.",
-    icon: "agents",
-  },
-  {
-    title: "Tracing",
-    body: "Execution steps with tokens, cost, and latency on every chat turn.",
-    icon: "trace",
-  },
-  {
-    title: "Knowledge",
-    body: "Project knowledge bases for grounded answers inside the workspace.",
-    icon: "knowledge",
-  },
-  {
-    title: "Replay",
-    body: "Re-run stored prompts and snapshots to compare model behavior.",
-    icon: "replay",
-  },
-] as const;
-
-function CapabilityIcon({
-  name,
-}: {
-  name: (typeof CAPABILITIES)[number]["icon"];
-}) {
-  const cls = "h-5 w-5";
   if (name === "memory") {
     return (
-      <svg viewBox="0 0 24 24" className={cls} fill="none" stroke="currentColor" strokeWidth="1.75">
+      <svg {...common}>
         <rect x="4" y="5" width="16" height="14" rx="2" />
         <path d="M8 9h8M8 13h5" strokeLinecap="round" />
       </svg>
@@ -113,7 +96,7 @@ function CapabilityIcon({
   }
   if (name === "rag") {
     return (
-      <svg viewBox="0 0 24 24" className={cls} fill="none" stroke="currentColor" strokeWidth="1.75">
+      <svg {...common}>
         <path d="M7 4h8l4 4v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
         <path d="M14 4v5h5M9 13h6M9 17h4" strokeLinecap="round" />
       </svg>
@@ -121,7 +104,7 @@ function CapabilityIcon({
   }
   if (name === "agents") {
     return (
-      <svg viewBox="0 0 24 24" className={cls} fill="none" stroke="currentColor" strokeWidth="1.75">
+      <svg {...common}>
         <circle cx="8" cy="10" r="2.5" />
         <circle cx="16" cy="10" r="2.5" />
         <path d="M5 18c.8-2.2 2.4-3.5 3-3.5h8c.6 0 2.2 1.3 3 3.5" strokeLinecap="round" />
@@ -130,25 +113,126 @@ function CapabilityIcon({
   }
   if (name === "trace") {
     return (
-      <svg viewBox="0 0 24 24" className={cls} fill="none" stroke="currentColor" strokeWidth="1.75">
+      <svg {...common}>
         <path d="M4 19V9M10 19V5M16 19v-7M22 19H2" strokeLinecap="round" />
       </svg>
     );
   }
   if (name === "knowledge") {
     return (
-      <svg viewBox="0 0 24 24" className={cls} fill="none" stroke="currentColor" strokeWidth="1.75">
+      <svg {...common}>
         <path d="M4 6.5C4 5.7 4.7 5 5.5 5H11v13H5.5A1.5 1.5 0 0 1 4 16.5v-10z" />
         <path d="M20 6.5C20 5.7 19.3 5 18.5 5H13v13h5.5a1.5 1.5 0 0 0 1.5-1.5v-10z" />
       </svg>
     );
   }
   return (
-    <svg viewBox="0 0 24 24" className={cls} fill="none" stroke="currentColor" strokeWidth="1.75">
+    <svg {...common}>
       <path d="M4 12a8 8 0 0 1 8-8" strokeLinecap="round" />
       <path d="M12 4a8 8 0 1 1-8 8" strokeLinecap="round" />
       <path d="M12 8v4l2.5 2.5" strokeLinecap="round" />
     </svg>
+  );
+}
+
+/** The hero's proof: one execution rendered as a timeline, not a feature list. */
+function TraceCard() {
+  return (
+    <figure className="lp-trace">
+      <figcaption className="lp-trace-head">
+        <span>execution #1284 · orchestra_full</span>
+        <span className="lp-badge">completed</span>
+      </figcaption>
+
+      <ol>
+        {TRACE_STEPS.map((step) => (
+          <li key={step.name} className="lp-trace-row">
+            <span className="lp-trace-step">{step.name}</span>
+            <span className="lp-lane">
+              <i
+                style={{
+                  left: `${(step.startMs / TRACE_TOTAL_MS) * 100}%`,
+                  width: `${(step.ms / TRACE_TOTAL_MS) * 100}%`,
+                }}
+              />
+            </span>
+            <span className="lp-trace-num">{step.ms}ms</span>
+            <span className="lp-trace-num">{step.tokens}</span>
+          </li>
+        ))}
+      </ol>
+
+      <div className="lp-trace-foot">
+        <span>4.02s total · 4,060 tokens</span>
+        <span className="lp-cost">$0.00019</span>
+      </div>
+    </figure>
+  );
+}
+
+/** Replays the real SSE contract once, when it scrolls into view. */
+function EventStream() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [live, setLive] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || live) return;
+
+    // No IntersectionObserver (or an old browser) should not mean no content —
+    // fall back to showing the finished state rather than an empty box.
+    if (typeof IntersectionObserver === "undefined") {
+      setLive(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setLive(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.35 },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [live]);
+
+  return (
+    <div ref={ref} className={`lp-term ${live ? "is-live" : ""}`}>
+      <div className="lp-term-bar">
+        <span>POST /api/v1/chat</span>
+        <span>text/event-stream</span>
+      </div>
+      <div className="lp-term-body">
+        {STREAM_EVENTS.map((event, i) => (
+          <div
+            key={`${event.t}-${event.name}`}
+            className="lp-ev"
+            style={{ "--i": i } as React.CSSProperties}
+          >
+            <span className="lp-ev-t">{event.t}</span>
+            <span className="lp-ev-n">{event.name}</span>
+            <span className="lp-ev-v">
+              {event.value}
+              {i === STREAM_EVENTS.length - 1 && <span className="lp-caret" />}
+            </span>
+          </div>
+        ))}
+        <div
+          className="lp-ev"
+          style={{ "--i": STREAM_EVENTS.length } as React.CSSProperties}
+        >
+          <span className="lp-ev-t">4.41s</span>
+          <span className="lp-ev-n">done</span>
+          <span className="lp-ev-v">
+            4,060 tokens · <span className="lp-cost">$0.00019</span>
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -171,184 +255,190 @@ export default function LandingPage() {
   const showDemoCta = DEMO_ENABLED && !signedIn;
 
   return (
-    <main className="studio-landing min-h-dvh">
-      <section className="studio-hero px-6 pb-20 pt-16 md:pb-28 md:pt-20">
-        <div className="mx-auto max-w-5xl">
-          <p className="animate-fade-up font-display text-6xl font-bold tracking-tight text-ink sm:text-7xl md:text-8xl">
-            Orchestra
-          </p>
-          <h1 className="animate-fade-up-delay mt-5 max-w-2xl font-display text-2xl font-semibold leading-snug text-ink sm:text-3xl">
-            The studio for production AI agents
-          </h1>
-          <p className="animate-fade-up-delay-2 mt-4 max-w-lg text-base leading-relaxed text-slate-600 sm:text-lg">
-            Design agents, run multi-step workflows, and inspect every execution
-            — from one calm workspace.
-          </p>
-          <div className="animate-fade-up-delay-2 mt-9 flex flex-wrap items-center gap-3">
-            <Link href={ctaHref} className="studio-cta">
-              Open workspace
-            </Link>
-            {showDemoCta && (
-              <Link
-                href="/login?demo=1"
-                className="inline-flex items-center justify-center rounded-lg border border-slate-400/70 px-5 py-[0.7rem] text-sm font-semibold text-ink transition hover:border-accent hover:text-accent"
-              >
-                Try the demo
-              </Link>
-            )}
-          </div>
-          {showDemoCta && (
-            <p className="animate-fade-up-delay-2 mt-3 text-xs text-slate-500">
-              No signup required — opens a shared workspace with traced example runs.
+    <main className="lp min-h-dvh">
+      {/* —— nav ———————————————————————————————————————————————— */}
+      <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
+        <span className="font-display text-lg font-bold tracking-tight">
+          Orchestra<span className="text-lp-beam">.</span>
+        </span>
+        <div className="flex items-center gap-6 text-sm text-lp-dim">
+          <a href="#capabilities" className="lp-link hidden transition sm:inline">
+            Capabilities
+          </a>
+          <a
+            href="https://github.com/BharathiSen/Orchestra"
+            target="_blank"
+            rel="noreferrer"
+            className="lp-link inline-flex items-center gap-2 transition"
+          >
+            <GitHubIcon className="h-[1.05rem] w-[1.05rem]" />
+            <span className="hidden sm:inline">GitHub</span>
+          </a>
+        </div>
+      </nav>
+
+      {/* —— hero ——————————————————————————————————————————————— */}
+      <section className="px-6 pb-20 pt-10 md:pb-28 md:pt-16">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[0.85fr_1.15fr] lg:gap-14">
+          <div>
+            <p className="lp-eyebrow animate-fade-up">Agent observability</p>
+            <h1 className="animate-fade-up-delay mt-4 font-display text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl">
+              Every agent run is a record, not a receipt.
+            </h1>
+            <p className="animate-fade-up-delay-2 mt-5 max-w-md text-base leading-relaxed text-lp-dim">
+              Orchestra runs multi-agent pipelines over LangGraph and writes down
+              what each one did — per-step latency, tokens, and cost, stored in
+              Postgres and replayable.
             </p>
-          )}
+
+            <div className="animate-fade-up-delay-2 mt-8 flex flex-wrap items-center gap-3">
+              <Link href={ctaHref} className="lp-cta">
+                Open workspace
+              </Link>
+              {showDemoCta && (
+                <Link href="/login?demo=1" className="lp-cta-ghost">
+                  Try the demo
+                </Link>
+              )}
+            </div>
+            {showDemoCta && (
+              <p className="animate-fade-up-delay-2 mt-3 text-xs text-lp-dim">
+                No signup — opens a shared workspace with traced example runs.
+              </p>
+            )}
+
+            <div className="animate-fade-up-delay-2 lp-rule mt-10 pt-5">
+              <div className="lp-proof">
+                <span>
+                  <b>4</b> agents
+                </span>
+                <span>
+                  <b>3</b> pipelines
+                </span>
+                <span>
+                  <b>90</b> tests
+                </span>
+                <span>
+                  <b>MIT</b> licensed
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="animate-fade-in-slow">
+            <TraceCard />
+          </div>
         </div>
       </section>
 
-      <section
-        id="how-it-works"
-        className="studio-section studio-section-soft px-6 py-20 md:py-24"
-      >
-        <div className="mx-auto max-w-5xl">
-          <p className="studio-eyebrow">Workflow</p>
-          <h2 className="mt-3 font-display text-3xl font-bold text-ink">
-            How it works
+      {/* —— live stream ————————————————————————————————————————— */}
+      <section className="lp-rule px-6 py-20 md:py-24">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[0.85fr_1.15fr] lg:gap-14">
+          <div>
+            <p className="lp-eyebrow">Server-sent events</p>
+            <h2 className="mt-4 font-display text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
+              Watch the pipeline think.
+            </h2>
+            <p className="mt-4 max-w-md text-base leading-relaxed text-lp-dim">
+              One request opens one stream. Agent progress, retrieved chunks, and
+              answer tokens all arrive on it, so the interface can show the work
+              instead of a spinner.
+            </p>
+            <p className="mt-4 max-w-md text-sm leading-relaxed text-lp-dim">
+              The direct and multi-agent routes stream tokens straight from the
+              model. The tool-calling route sends its answer once complete —
+              its final node needs the whole response before it can check it.
+            </p>
+          </div>
+
+          <EventStream />
+        </div>
+      </section>
+
+      {/* —— capabilities ———————————————————————————————————————— */}
+      <section id="capabilities" className="lp-rule px-6 py-20 md:py-24">
+        <div className="mx-auto max-w-6xl">
+          <p className="lp-eyebrow">Capabilities</p>
+          <h2 className="mt-4 max-w-2xl font-display text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
+            The parts that make a run inspectable.
           </h2>
-          <p className="mt-3 max-w-xl text-slate-600">
-            From empty project to traced run — three steps to a visible agent
-            loop.
-          </p>
-          <ol className="mt-12 grid gap-5 md:grid-cols-3">
-            {STEPS.map((step) => (
-              <li key={step.n} className="studio-shimmer-card">
-                <div className="studio-shimmer-inner">
-                  <span className="studio-shimmer-num" aria-hidden>
-                    {step.n}
-                  </span>
-                  <div className="studio-shimmer-icon">
-                    <StepIcon name={step.icon} />
-                  </div>
-                  <p className="mt-5 font-display text-xs font-semibold tracking-[0.18em] text-accent uppercase">
-                    Step {step.n}
-                  </p>
-                  <h3 className="mt-2 font-display text-xl font-semibold text-ink">
-                    {step.title}
-                  </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-slate-600">
-                    {step.body}
-                  </p>
+
+          <ul className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {CAPABILITIES.map((item) => (
+              <li key={item.title} className="lp-tile">
+                <div className="lp-tile-icon">
+                  <CapabilityIcon name={item.icon} />
                 </div>
+                <h3 className="mt-4 font-display text-base font-semibold">
+                  {item.title}
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-lp-dim">
+                  {item.body}
+                </p>
               </li>
             ))}
-          </ol>
+          </ul>
         </div>
       </section>
 
-      <section
-        id="capabilities"
-        className="capabilities-swap studio-section px-6 py-20 md:py-24"
-      >
-        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2 lg:gap-8">
-          <div>
-            <p className="studio-eyebrow">Capabilities</p>
-            <h2 className="mt-4 font-display text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
-              Agent stacks have never looked this clear
+      {/* —— closing cta ————————————————————————————————————————— */}
+      <section className="lp-rule px-6 py-20 md:py-24">
+        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-8 md:flex-row md:items-center">
+          <div className="max-w-xl">
+            <h2 className="font-display text-3xl font-bold tracking-tight">
+              Built to be read, not just run.
             </h2>
-            <p className="mt-4 max-w-md text-base text-slate-400 sm:text-lg">
-              Memory, RAG, multi-agent runs, and traces — watch the stack cycle
-              through what Orchestra already ships.
+            <p className="mt-4 text-base leading-relaxed text-lp-dim">
+              Open source, documented down to the trade-offs, and deployed. Start a
+              project and trace your first conversation.
             </p>
           </div>
-          <div className="relative h-[520px] w-full sm:h-[560px] lg:h-[600px]">
-            <CardSwap
-              width={500}
-              height={360}
-              cardDistance={60}
-              verticalDistance={70}
-              delay={5000}
-              pauseOnHover={false}
-              skewAmount={6}
-              easing="elastic"
-            >
-              {CAPABILITIES.slice(0, 3).map((item) => (
-                <Card key={item.title}>
-                  <div className="card-swap-tab">
-                    <CapabilityIcon name={item.icon} />
-                    {item.title}
-                  </div>
-                  <div className="card-swap-panel">
-                    <h3 className="card-swap-title">{item.title}</h3>
-                    <p className="card-swap-body">{item.body}</p>
-                  </div>
-                </Card>
-              ))}
-            </CardSwap>
-          </div>
-        </div>
-      </section>
-
-      <section className="studio-cta-band px-6 py-20 md:py-24">
-        <div className="mx-auto flex max-w-5xl flex-col items-start justify-between gap-8 md:flex-row md:items-center">
-          <div className="max-w-2xl">
-            <h2 className="font-display text-3xl font-bold text-ink">
-              Built for AI engineers
-            </h2>
-            <p className="mt-4 text-base leading-relaxed text-slate-600">
-              If you are wiring agents, memory, retrieval, and evals into a real
-              product — Orchestra is the workspace that keeps the loop visible.
-              Start a project and run your first traced agent conversation.
-            </p>
-          </div>
-          <Link href={ctaHref} className="studio-cta shrink-0">
+          <Link href={ctaHref} className="lp-cta shrink-0">
             Get started
           </Link>
         </div>
       </section>
 
-      <footer className="studio-footer border-t border-slate-300/60 px-6 py-12">
-        <div className="mx-auto grid max-w-5xl gap-10 md:grid-cols-[1.4fr_1fr]">
+      {/* —— footer ————————————————————————————————————————————— */}
+      <footer className="lp-rule px-6 py-12">
+        <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.5fr_1fr]">
           <div>
-            <p className="font-display text-2xl font-bold tracking-tight text-ink">
-              Orchestra
+            <p className="font-display text-lg font-bold tracking-tight">
+              Orchestra<span className="text-lp-beam">.</span>
             </p>
-            <p className="mt-3 max-w-md text-sm leading-relaxed text-slate-600">
-              Open-source AI engineering platform for designing, running, and
-              tracing production agents.
+            <p className="mt-3 max-w-md text-sm leading-relaxed text-lp-dim">
+              An AI engineering platform for designing, running, and debugging
+              agent pipelines.
             </p>
             <a
               href="https://github.com/BharathiSen/Orchestra"
               target="_blank"
               rel="noreferrer"
-              className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-accent"
+              className="lp-link mt-5 inline-flex items-center gap-2 text-sm text-lp-dim transition"
             >
-              <GitHubIcon className="h-5 w-5" />
+              <GitHubIcon className="h-[1.05rem] w-[1.05rem]" />
               GitHub
             </a>
           </div>
           <div>
-            <p className="font-display text-sm font-semibold tracking-[0.12em] text-ink uppercase">
-              Quick links
+            <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-lp-dim">
+              Links
             </p>
-            <ul className="mt-4 space-y-3 text-sm text-slate-600">
+            <ul className="mt-4 space-y-3 text-sm text-lp-dim">
               <li>
-                <a href="#how-it-works" className="hover:text-accent">
-                  How it works
-                </a>
-              </li>
-              <li>
-                <a href="#capabilities" className="hover:text-accent">
+                <a href="#capabilities" className="lp-link transition">
                   Capabilities
                 </a>
               </li>
               <li>
-                <Link href={ctaHref} className="hover:text-accent">
+                <Link href={ctaHref} className="lp-link transition">
                   Open workspace
                 </Link>
               </li>
             </ul>
           </div>
         </div>
-        <div className="mx-auto mt-10 max-w-5xl border-t border-slate-300/60 pt-6 text-sm text-slate-500">
+        <div className="lp-rule mx-auto mt-10 max-w-6xl pt-6 text-sm text-lp-dim">
           © {new Date().getFullYear()} Orchestra · MIT
         </div>
       </footer>
