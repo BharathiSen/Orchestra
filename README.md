@@ -51,6 +51,29 @@ password: orchestra-demo
 
 > Shared workspace. Anything you create is visible to others and may be reset.
 
+<!-- ---------------------------------------------------------------------------
+     SCREENSHOTS — add three images here and uncomment the block below.
+
+     Most readers never click through to the demo, so without these the
+     observability surface (the actual differentiator) is invisible in the README.
+     Capture at ~1440px wide, save under docs/, keep the filenames below.
+
+       1. docs/screenshot-chat.png         chat mid-answer, trace panel open,
+                                           retrieved chunks visible
+       2. docs/screenshot-execution.png    execution detail — per-step latency,
+                                           tokens, and cost
+       3. docs/screenshot-dashboard.png    dashboard aggregates
+
+### Screens
+
+| Traced conversation | Execution detail |
+|---|---|
+| ![Chat with live agent steps and retrieved sources](docs/screenshot-chat.png) | ![Per-step latency, tokens, and cost](docs/screenshot-execution.png) |
+
+![Dashboard aggregates](docs/screenshot-dashboard.png)
+
+---------------------------------------------------------------------------- -->
+
 ---
 
 ## ✨ Key Features
@@ -588,9 +611,31 @@ Upstash). Numbers are indicative, not a benchmark.
 | `/health/ready` | ~120 ms | — | — |
 | Frontend TTFB | ~390 ms | — | — |
 
+**Time to first token**, measured separately against Groq on a local Docker stack
+(so these are not comparable to the hosted latencies above, which include Render
+and Neon round-trips):
+
+| Path | TTFT | Total | Streamed chunks |
+|---|---|---|---|
+| Direct chat | 0.21 – 0.26 s | ~0.30 s | 14 |
+| Orchestra — simple route | ~1.8 s | ~1.9 s | 28 |
+| Orchestra — full route | ~5.2 s | ~6.2 s | 706 |
+
+The chunk counts are the point: 706 provider-sized deltas on a full run, averaging
+about nine characters each, is genuine token streaming. It previously emitted one
+fixed 24-character slice at a time *after* the pipeline had finished, so TTFT and
+total were the same number. On the full route the gain is real but partial —
+roughly a second of the six — because the Reviewer emits its notes before its
+answer and the stream is held back until the `FINAL:` marker.
+
 **Embedding warm-up** takes ~20 s at startup and removes a cold-start penalty that
 previously exceeded four minutes on the first grounded question. After warm-up
 the first RAG query completes in ~0.6 s — indistinguishable from a warm one.
+
+**Provider cold starts dominate a single sample.** The first Groq call after an
+idle period measured 3.9 s TTFT on the direct path; the next three measured 0.26,
+0.21, and 0.23 s. Any one-shot latency figure for an LLM app is mostly measuring
+the provider.
 
 **Rate limiting**, verified with 10 parallel chat requests: exactly 3 succeeded
 (the concurrency cap) and 7 returned `429` with `Retry-After`.
