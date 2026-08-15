@@ -173,7 +173,17 @@ class OpenAICompatibleService:
         model: str,
         temperature: float,
         tools: list[dict[str, Any]] | None = None,
+        usage_sink: dict[str, int] | None = None,
     ) -> Iterator[str]:
+        """Stream content deltas, optionally reporting exact token usage.
+
+        A streaming response carries no usage block by default, which is why
+        streamed turns used to fall back to a ``len // 4`` estimate. Asking for
+        ``stream_options.include_usage`` makes the provider append a final chunk
+        containing real counts; it is written into ``usage_sink`` so the caller
+        can prefer it over the estimate. Providers that ignore the option simply
+        leave the sink empty and the estimate stands.
+        """
         url = f"{self.base_url}/chat/completions"
         payload: dict[str, Any] = {
             "model": model,
@@ -181,6 +191,8 @@ class OpenAICompatibleService:
             "temperature": temperature,
             "stream": True,
         }
+        if usage_sink is not None:
+            payload["stream_options"] = {"include_usage": True}
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "none"
@@ -211,6 +223,18 @@ class OpenAICompatibleService:
                             chunk = json.loads(data)
                         except json.JSONDecodeError:
                             continue
+                        # The usage chunk arrives last and carries no choices, so
+                        # it must be read before the empty-choices guard below.
+                        if usage_sink is not None and chunk.get("usage"):
+                            for key in (
+                                "prompt_tokens",
+                                "completion_tokens",
+                                "total_tokens",
+                            ):
+                                value = _usage_int(chunk["usage"], key)
+                                if value is not None:
+                                    usage_sink[key] = value
+
                         choices = chunk.get("choices") or []
                         if not choices:
                             continue

@@ -194,10 +194,19 @@ class ChatService:
             return
 
         retrieved_chunks = self.rag.serialize_chunks(chunks)
+        # The system prompt gains only the grounding *rules*. The chunk text —
+        # untrusted, user-uploaded content — goes into a delimited user-role
+        # message instead, so it never enters the instruction channel. See
+        # `rag/prompt_builder.py` for the full rationale.
         llm_messages[0]["content"] = self.rag.build_grounded_prompt(
             base_system_prompt=base_system_prompt,
             retrieved_chunks=chunks,
         )
+        context_message = self.rag.build_context_message(chunks)
+        if context_message is not None:
+            # Immediately before the current question, so the model reads the
+            # material and then the thing it is being asked about.
+            llm_messages.insert(len(llm_messages) - 1, context_message)
         turn_trace["retrieved_chunks"] = retrieved_chunks
         tracker.end_step(
             retrieve_step,
@@ -228,6 +237,43 @@ class ChatService:
         if len(cleaned) <= 60:
             return cleaned or "New conversation"
         return cleaned[:57] + "..."
+
+    def validate_chat_request(self, *, user: User, payload: ChatRequest) -> None:
+        """Run every check that must map to an HTTP status code.
+
+        This exists because `stream_chat` is a **generator**: nothing in its body
+        runs until Starlette starts iterating it, and by then
+        `http.response.start` has already been sent with a 200. An ownership
+        failure inside the generator therefore produced a 200 with a truncated
+        body instead of a 404 — the client could not tell refusal from a dropped
+        connection, and the status code lied.
+
+        Calling this from the route, before the `StreamingResponse` is
+        constructed, moves those failures back in front of the response headers.
+        The same checks remain inside `stream_chat` as defence in depth for any
+        caller that bypasses the route.
+        """
+        if not is_llm_configured():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=missing_provider_message(),
+            )
+        self._owned_project(project_id=payload.project_id, user=user)
+        self._optional_owned_agent(
+            agent_id=payload.agent_id,
+            user=user,
+            project_id=payload.project_id,
+        )
+        if payload.conversation_id is not None:
+            conversation = self._owned_conversation(
+                conversation_id=payload.conversation_id,
+                user=user,
+            )
+            if conversation.project_id != payload.project_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="conversation_id does not belong to project_id",
+                )
 
     def stream_chat(self, *, user: User, payload: ChatRequest) -> Iterator[str]:
         """Yield SSE events for chat and persist the assistant reply."""
@@ -453,6 +499,11 @@ class ChatService:
                     "draft": "",
                     "review_notes": "",
                     "final_response": "",
+                    # The terminal agent defers its call so the engine can stream
+                    # it. Without this the whole answer is computed first and
+                    # then sliced, making time-to-first-token equal to full
+                    # pipeline latency.
+                    "stream_final": True,
                 }
 
                 final_answer = ""
@@ -486,6 +537,10 @@ class ChatService:
                                 else "orchestra"
                             )
                         yield _sse(event)
+                    elif evt_type == "token":
+                        # Real provider tokens from the terminal agent.
+                        assistant_chunks.append(str(event.get("content") or ""))
+                        yield _sse(event)
                     elif evt_type == "retrieved_context":
                         turn_trace["retrieved_chunks"] = event.get("chunks") or []
                         yield _sse(event)
@@ -504,11 +559,15 @@ class ChatService:
                                 }
                             )
 
-                if not final_answer:
-                    final_answer = "(No content returned by Orchestra.)"
-                for token in _chunk_text(final_answer):
-                    assistant_chunks.append(token)
-                    yield _sse({"type": "token", "content": token})
+                # Normally the terminal agent already streamed its tokens above.
+                # This only runs if it did not — an engine-level fallback, or a
+                # pipeline that produced an answer without reaching that agent.
+                if not assistant_chunks:
+                    if not final_answer:
+                        final_answer = "(No content returned by Orchestra.)"
+                    for token in _chunk_text(final_answer):
+                        assistant_chunks.append(token)
+                        yield _sse({"type": "token", "content": token})
 
             elif enable_tools:
                 # Knowledge-base grounding applies on the tools path too, not just

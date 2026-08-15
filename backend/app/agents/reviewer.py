@@ -26,13 +26,34 @@ class ReviewerAgent:
             f"Research notes:\n{research}\n\n"
             f"Draft:\n{draft}"
         )
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+
+        if state.get("stream_final"):
+            # The engine makes this call as a stream. The `final_marker` filter
+            # holds tokens back until `FINAL:` appears, so the user never sees
+            # the review notes — they are recovered from the same buffer and
+            # still reported as review_notes.
+            return {
+                "current_agent": self.name,
+                "final_messages": messages,
+                "final_temperature": 0.1,
+                "final_filter": "final_marker",
+                "execution_history": [
+                    {
+                        "agent": self.name,
+                        "status": "done",
+                        "summary": "Reviewed draft; final answer streamed.",
+                    }
+                ],
+            }
+
         try:
             raw = llm_text(
                 self.llm,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
+                messages=messages,
                 model=state["model"],
                 temperature=0.1,
             )

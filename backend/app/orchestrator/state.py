@@ -33,3 +33,14 @@ class OrchestraState(TypedDict, total=False):
     draft: str
     review_notes: str
     final_response: str
+
+    # Terminal-agent streaming. When `stream_final` is set the terminal agent
+    # (fast_answer on the simple route, reviewer on the full one) does not call
+    # the model itself — it returns the messages it *would* have sent, and the
+    # engine makes that call as a stream so tokens reach the browser as the model
+    # produces them. `final_filter` names how to interpret the raw stream; see
+    # `orchestrator/streaming.py`.
+    stream_final: bool
+    final_messages: list[dict[str, Any]]
+    final_temperature: float
+    final_filter: str

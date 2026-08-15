@@ -174,6 +174,10 @@ class GeminiService:
         model: str,
         temperature: float,
         tools: list[dict[str, Any]] | None = None,
+        # Accepted for interface parity with OpenAICompatibleService and left
+        # unfilled: this adapter does not read Gemini's usageMetadata yet, so
+        # streamed turns on Gemini keep the token estimate.
+        usage_sink: dict[str, int] | None = None,
     ) -> Iterator[str]:
         system_instruction, contents = self._split_messages(messages)
         if not contents:

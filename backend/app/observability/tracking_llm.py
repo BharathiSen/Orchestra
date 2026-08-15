@@ -67,21 +67,28 @@ class TrackingLLM:
     ) -> Iterator[str]:
         t0 = time.perf_counter()
         chunks: list[str] = []
+        # Providers that support it write real counts here; the rest leave it
+        # empty and the character-based estimate is used instead. Either way the
+        # step detail records which of the two happened, so a cost figure is
+        # never silently a guess.
+        usage: dict[str, int] = {}
         for token in self._llm.stream_chat_completion(
             messages=messages,
             model=model,
             temperature=temperature,
             tools=tools,
+            usage_sink=usage,
         ):
             chunks.append(token)
             yield token
         latency_ms = int((time.perf_counter() - t0) * 1000)
         prompt_text = " ".join(str(m.get("content") or "") for m in messages)
         completion_text = "".join(chunks)
+        measured = bool(usage.get("prompt_tokens") or usage.get("completion_tokens"))
         self.tracker.record_llm_usage(
             step_name=f"{self.step_prefix}_stream",
-            input_tokens=estimate_tokens(prompt_text),
-            output_tokens=estimate_tokens(completion_text),
+            input_tokens=usage.get("prompt_tokens") or estimate_tokens(prompt_text),
+            output_tokens=usage.get("completion_tokens") or estimate_tokens(completion_text),
             latency_ms=latency_ms,
-            detail={"model": model, "estimated": True, "stream": True},
+            detail={"model": model, "estimated": not measured, "stream": True},
         )

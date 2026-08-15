@@ -28,13 +28,35 @@ class FastAnswerAgent:
             f"Research notes:\n{research}\n\n"
             f"User question:\n{question}"
         )
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+
+        if state.get("stream_final"):
+            # Hand the call to the engine so it can stream. Everything this agent
+            # decides — prompt, temperature, ordering — is still decided here;
+            # only the transport moves. `final_response` stays empty on purpose,
+            # because the engine fills it from what it actually streamed.
+            return {
+                "current_agent": self.name,
+                "final_messages": messages,
+                "final_temperature": float(state.get("temperature") or 0.2),
+                "final_filter": "passthrough",
+                "review_notes": "Skipped (simple route).",
+                "execution_history": [
+                    {
+                        "agent": self.name,
+                        "status": "done",
+                        "summary": "Simple route answer, streamed (Writer/Reviewer skipped).",
+                    }
+                ],
+            }
+
         try:
             answer = llm_text(
                 self.llm,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
+                messages=messages,
                 model=state["model"],
                 temperature=float(state.get("temperature") or 0.2),
             )

@@ -16,6 +16,35 @@ jobs:
     defaults:
       run:
         working-directory: backend
+
+    services:
+      # The real image, not plain postgres: the schema has a vector(384) column
+      # and retrieval orders by cosine distance, so a stock Postgres would fail
+      # to create the table and the retrieval tests would be skipped silently.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: orchestra
+          POSTGRES_PASSWORD: orchestra
+          POSTGRES_DB: orchestra_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U orchestra"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +58,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install ruff
+
+      - name: Lint
+        run: python -m ruff check .
 
       - name: Compile all sources
         # Catches syntax errors in modules the test suite never imports.
@@ -36,9 +69,26 @@ jobs:
 
       - name: Run tests
         env:
-          DATABASE_URL: postgresql+psycopg2://orchestra:orchestra@localhost:5432/orchestra
+          # TEST_DATABASE_URL switches the suite off SQLite and onto pgvector, so
+          # the `requires_pgvector` tests run here instead of being skipped.
+          TEST_DATABASE_URL: postgresql+psycopg2://orchestra:orchestra@localhost:5432/orchestra_test
           REDIS_URL: redis://localhost:6379/0
-        run: python -m pytest tests/ -q
+          # Makes conftest refuse to start if the suite is not actually on
+          # PostgreSQL, so retrieval can never be silently untested here.
+          REQUIRE_PGVECTOR: "1"
+        run: python -m pytest tests/
+
+      - name: Verify the pgvector guard actually guards
+        # The guard is only useful if it fires. Running without a PostgreSQL URL
+        # must fail; if this step ever succeeds, the guard has stopped working.
+        env:
+          REQUIRE_PGVECTOR: "1"
+        run: |
+          if python -m pytest tests/ --collect-only > guard.log 2>&1; then
+            echo "::error::REQUIRE_PGVECTOR=1 on SQLite should have failed the run, but did not"
+            exit 1
+          fi
+          echo "guard correctly refused to run the suite without pgvector"
 
       - name: Startup checks reject unsafe production config
         # Guards the fail-fast behaviour that protects a real deployment: if this

@@ -65,7 +65,8 @@ password: orchestra-demo
 | 🔬 | **Execution tracing** | Per-step latency, tokens, and cost for every run — searchable, filterable, with a snapshot for replay |
 | ⏪ | **Replay** | Re-run a stored prompt with its original pipeline flags to compare behaviour |
 | 🚦 | **Three-axis rate limiting** | Requests per minute, concurrent streams, and a daily token budget — because none of the three bounds the others |
-| 📡 | **SSE streaming** | Token streaming with live agent-step events, rendered as Markdown with tables and syntax-highlighted code |
+| 📡 | **SSE streaming** | Real provider token streaming on the direct and both Orchestra routes, with live agent-step events, rendered as Markdown with tables and syntax-highlighted code *(the tools path buffers — see [roadmap](#-future-roadmap))* |
+| 🧪 | **Tested behaviour** | 90 backend integration tests covering auth, ownership isolation, the SSE contract, all three pipelines, every rate limit, and the pgvector query — run in CI against real Postgres and Redis |
 
 ---
 
@@ -568,7 +569,8 @@ layout uses `dvh`, with `vh` retained as the fallback line beneath it.
 | **Ownership** | Every project-scoped resource is reachable only by its owner; unauthorized access returns 404, not 403 |
 | **Health probes** | Split liveness and readiness, with 503 on dependency failure |
 | **Containers** | Multi-stage builds, non-root user, `HEALTHCHECK`, secrets excluded from build context |
-| **CI** | Ruff, `compileall`, pytest, a startup-guard assertion, ESLint, `tsc`, `next build`, and both Docker image builds |
+| **Testing** | 90 backend integration tests against real Postgres + Redis service containers, with a stubbed LLM so no test makes a network call. Ownership, rate limits, the SSE event contract, all three pipelines, the retrieval trust boundary, and the pgvector query |
+| **CI** | Ruff, `compileall`, pytest (incl. pgvector, and a guard that fails if those tests are skipped), a startup-validation assertion, ESLint, `tsc`, `next build`, and both Docker image builds |
 | **Graceful degradation** | Redis down degrades memory; retrieval failure yields an ungrounded answer; neither returns a 500 |
 
 ---
@@ -603,14 +605,21 @@ Ordered by impact. These are known gaps, stated plainly.
 - [ ] **Real evaluation harness.** Scores today are lexical heuristics — token
       overlap between question and answer, labelled as such in the UI. A golden
       dataset with rubric-scored LLM judging, wired into CI as a regression gate,
-      is the single highest-value addition.
-- [ ] **Genuine token streaming on all paths.** The tools and Orchestra pipelines
-      compute a complete answer and then emit it in slices, so time-to-first-token
-      equals full pipeline latency. Only the direct path streams from the provider.
+      is the single highest-value addition. (Note: the test suite covers
+      *correctness of the machinery*, not *quality of the answers* — different
+      problems, and only the first one is solved.)
+- [ ] **Genuine token streaming on the tools path.** Direct and both Orchestra
+      routes now stream from the provider. The tools path still computes a
+      complete answer and emits it in slices, because its answer node inspects
+      the finished text to detect a refusal after an empty search and regenerate —
+      a decision that cannot be made mid-stream.
 - [ ] **Alembic migrations.** Schema currently comes from `create_all` at startup
       plus idempotent `ALTER TABLE`, which races across replicas.
-- [ ] **Session lifecycle under concurrency.** The database session is held for the
-      whole SSE stream; the default pool will exhaust under enough concurrent chats.
+- [ ] **Async handlers under concurrency.** The chat handler is a sync `def` and
+      holds its database session for the whole SSE stream, so the pool still
+      bounds simultaneous chats at roughly 15. (Sessions are now released
+      deterministically when a stream ends — they previously lingered until
+      garbage collection.)
 - [ ] **HNSW index on `document_chunks.embedding`.** Retrieval is currently an
       exact scan — fine at demo scale, wrong at a real corpus.
 - [ ] **Hybrid retrieval and reranking.** Fuse pgvector similarity with Postgres
@@ -647,6 +656,14 @@ unusable.
 bound concurrency, and neither bounds spend. It took three independent limits to
 actually protect the API budget.
 
+**A streaming response defers everything past the point where it can still fail
+properly.** `StreamingResponse` sends its status line before the first event is
+pulled, so validation living inside the generator ran *after* a 200 had already
+gone out — an unauthorized request got 200 and a truncated body instead of 404.
+For the same reason, a `Depends(get_db)` session outlived its own teardown and
+was released only at garbage collection. Both were found by the first integration
+tests written against that endpoint, and neither was visible from the UI.
+
 **Honest labels beat impressive ones.** The scorer reports
 `"Heuristic scores (no LLM judge)"` rather than calling itself accuracy. Naming a
 limitation costs less than being caught by it.
@@ -660,6 +677,14 @@ Issues and pull requests are welcome.
 ```bash
 cd backend  && pytest tests/          # deterministic LLM stub — no API keys needed
 cd frontend && npm run lint && npm run typecheck && npm run build
+```
+
+The backend suite runs against SQLite by default, so it needs no services. Point
+it at a pgvector database to additionally run the vector-similarity tests, which
+are skipped otherwise:
+
+```bash
+TEST_DATABASE_URL=postgresql+psycopg2://orchestra:orchestra@localhost:5432/orchestra_test pytest tests/
 ```
 
 Layering is `API → service → repository → model`. Routers stay thin. Prompts

@@ -11,6 +11,7 @@ from app.agents import PlannerAgent, ResearchAgent, ReviewerAgent, WriterAgent
 from app.agents.fast_answer import FastAnswerAgent
 from app.orchestrator.routing import classify_route
 from app.orchestrator.state import OrchestraState
+from app.orchestrator.streaming import FinalAnswerFilter, PassthroughFilter
 
 RouteName = Literal["simple", "full"]
 
@@ -28,7 +29,7 @@ def build_orchestra_graph(
     graph.add_node("planner", PlannerAgent(llm))
     graph.add_node(
         "research",
-        ResearchAgent(llm, rag=rag, tools=tools, enable_web_search=True),
+        ResearchAgent(llm, rag=rag, tools=tools, enable_reference_index=True),
     )
     graph.add_node("writer", WriterAgent(llm))
     graph.add_node("reviewer", ReviewerAgent(llm))
@@ -168,6 +169,12 @@ class OrchestraEngine:
                     "route": route,
                 }
 
+        # The terminal agent deferred its LLM call so it could be streamed. Making
+        # it here, outside the graph, is what turns time-to-first-token from
+        # "whole pipeline" into "everything except the last generation".
+        if final_state.get("final_messages"):
+            yield from self._stream_final(final_state)
+
         answer = str(final_state.get("final_response") or "").strip()
         if not answer:
             answer = str(final_state.get("draft") or "").strip()
@@ -185,6 +192,59 @@ class OrchestraEngine:
             "errors": final_state.get("errors") or [],
             "route": route,
         }
+
+
+    def _stream_final(self, final_state: dict[str, Any]) -> Iterator[dict[str, Any]]:
+        """Stream the terminal agent's generation, yielding `token` events.
+
+        Writes the assembled answer back onto `final_state` so the caller's
+        `orchestra_result` stays the single source of truth for what was said.
+
+        A failure here falls back to the draft rather than aborting the turn: the
+        pipeline has already done its expensive work, and losing the polish step
+        is much better than losing the answer.
+        """
+        filter_name = str(final_state.get("final_filter") or "passthrough")
+        token_filter = (
+            FinalAnswerFilter() if filter_name == "final_marker" else PassthroughFilter()
+        )
+
+        pieces: list[str] = []
+        try:
+            for raw_token in self.llm.stream_chat_completion(
+                messages=final_state["final_messages"],
+                model=final_state["model"],
+                temperature=float(final_state.get("final_temperature") or 0.2),
+            ):
+                visible = token_filter.feed(raw_token)
+                if visible:
+                    pieces.append(visible)
+                    yield {"type": "token", "content": visible}
+
+            tail = token_filter.finish()
+            if tail:
+                pieces.append(tail)
+                yield {"type": "token", "content": tail}
+        except Exception as exc:  # noqa: BLE001 — degrade to the draft, never lose the turn
+            fallback = str(final_state.get("draft") or "").strip()
+            final_state.setdefault("errors", []).append(f"final_stream: {exc}")
+            if fallback and not pieces:
+                final_state["final_response"] = fallback
+                for chunk in _slice(fallback):
+                    yield {"type": "token", "content": chunk}
+                return
+
+        answer = "".join(pieces).strip()
+        if answer:
+            final_state["final_response"] = answer
+        if token_filter.notes:
+            final_state["review_notes"] = token_filter.notes
+
+
+def _slice(text: str, size: int = 24) -> Iterator[str]:
+    """Emit a pre-computed string in pieces — only used on the fallback path."""
+    for i in range(0, len(text), size):
+        yield text[i : i + size]
 
 
 def _agent_summary(payload: dict[str, Any], agent_name: str) -> str | None:
