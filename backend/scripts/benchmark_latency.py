@@ -22,9 +22,9 @@ BACKEND = Path(__file__).resolve().parents[1]
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-import tests.conftest as harness  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+import tests.conftest as harness  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.core.database import Base  # noqa: E402
 from app.core.limiter import RateLimiter, get_rate_limiter  # noqa: E402
