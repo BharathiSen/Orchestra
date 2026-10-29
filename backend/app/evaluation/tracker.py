@@ -38,6 +38,9 @@ class ExecutionTracker:
     started_perf: float = field(default_factory=time.perf_counter)
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     snapshot: dict[str, Any] = field(default_factory=dict)
+    # Optional request timeline. Not part of the persisted step rows; chat
+    # copies ``timeline.as_dict()`` into the execution snapshot.
+    timeline: Any | None = None
     _open_step: StepRecord | None = field(default=None, repr=False)
 
     def start_step(self, step_name: str, *, detail: dict[str, Any] | None = None) -> StepRecord:

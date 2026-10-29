@@ -182,6 +182,9 @@ class FakeLLM:
         self.raise_on_call = raise_on_call
         self.calls: list[list[dict[str, Any]]] = []
         self.stream_calls: list[list[dict[str, Any]]] = []
+        # Optional pause before the first streamed chunk. Tests use this to
+        # prove time-to-first-token is measured on the stream, not after it.
+        self.first_chunk_delay_s = 0.0
 
     # -- helpers for assertions --------------------------------------------
 
@@ -250,7 +253,11 @@ class FakeLLM:
         # Split into several chunks so a test can tell real streaming from a
         # single-shot emission.
         size = max(1, len(content) // 3)
+        delayed = False
         for i in range(0, len(content), size):
+            if not delayed and self.first_chunk_delay_s > 0:
+                time.sleep(self.first_chunk_delay_s)
+                delayed = True
             yield content[i : i + size]
         if usage_sink is not None:
             usage_sink["prompt_tokens"] = 13

@@ -1,6 +1,7 @@
 import contextlib
 import json
 import logging
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -15,6 +16,7 @@ from app.graph import build_agent_graph
 from app.memory.service import MemoryService
 from app.models import Agent, Conversation, Message, Project, User
 from app.observability import TraceService, TrackingLLM
+from app.observability.latency import LatencyTimeline, pop_timeline, push_timeline
 from app.orchestrator import OrchestraEngine
 from app.prompts.system import tool_system_addendum
 from app.rag.service import RagService
@@ -277,6 +279,26 @@ class ChatService:
 
     def stream_chat(self, *, user: User, payload: ChatRequest) -> Iterator[str]:
         """Yield SSE events for chat and persist the assistant reply."""
+        timeline = LatencyTimeline()
+        timeline.mark("request_received")
+        try:
+            timeline.provider = settings.active_llm_provider
+            timeline.model = payload.model
+        except Exception:  # noqa: BLE001 — instrumentation must not break chat
+            pass
+        ctx = push_timeline(timeline)
+        try:
+            yield from self._generate_chat(user=user, payload=payload, timeline=timeline)
+        finally:
+            pop_timeline(ctx)
+
+    def _generate_chat(
+        self,
+        *,
+        user: User,
+        payload: ChatRequest,
+        timeline: LatencyTimeline,
+    ) -> Iterator[str]:
         if not is_llm_configured():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -316,6 +338,7 @@ class ChatService:
             self.db.commit()
             self.db.refresh(conversation)
 
+        timeline.mark("auth_complete")
         yield _sse(
             {"type": "meta", "conversation_id": conversation.id, "title": conversation.title}
         )
@@ -333,11 +356,13 @@ class ChatService:
 
         # Load the Redis short-term buffer plus long-term facts. Postgres history
         # is passed as a fallback so a cold or evicted Redis still yields context.
+        memory_started = time.perf_counter()
         memory_ctx = self.memory.build_context(
             user_id=user.id,
             conversation_id=conversation.id,
             postgres_fallback=postgres_fallback,
         )
+        timeline.add_duration("memory_lookup", memory_started)
         mem_status = self.memory.get_status(
             user_id=user.id,
             conversation_id=conversation.id,
@@ -409,15 +434,21 @@ class ChatService:
             pipeline = "orchestra"  # refined to simple/full after route is known
         elif enable_tools:
             pipeline = "tools"
+            timeline.mark("routing")
         else:
             pipeline = "direct"
+            timeline.mark("routing")
 
-        # Refresh long-term after auto-extract
-        memory_ctx = self.memory.build_context(
-            user_id=user.id,
-            conversation_id=conversation.id,
-            postgres_fallback=postgres_fallback,
-        )
+        # Newly stored facts have to be re-read into the prompt. When this turn
+        # extracted nothing, the context loaded above is still current.
+        if extracted:
+            memory_started = time.perf_counter()
+            memory_ctx = self.memory.build_context(
+                user_id=user.id,
+                conversation_id=conversation.id,
+                postgres_fallback=postgres_fallback,
+            )
+            timeline.add_duration("memory_lookup", memory_started)
         long_term_block = self.memory.format_long_term_prompt(memory_ctx.long_term)
         summary_block = self.memory.format_summary_prompt(memory_ctx.conversation_summary)
         base_system_prompt = self._resolve_system_prompt(
@@ -439,6 +470,10 @@ class ChatService:
         # recorded with a row rather than vanishing.
         traces = TraceService(self.db)
         tracker = ExecutionTracker(model_name=payload.model, pipeline=pipeline)
+        tracker.timeline = timeline
+        # Same origin as the request timeline, so persisted latency includes
+        # auth and memory rather than starting only when the trace row opens.
+        tracker.started_perf = timeline._t0
         execution = traces.start(
             user_id=user.id,
             project_id=payload.project_id,
@@ -448,6 +483,7 @@ class ChatService:
             pipeline=pipeline,
             prompt=payload.message,
         )
+        timeline.execution_id = execution.id
         yield _sse(
             {
                 "type": "execution_meta",
@@ -470,6 +506,11 @@ class ChatService:
             "route": None,
         }
         open_steps: dict[str, StepRecord] = {}
+
+        def emit_token(content: str) -> str:
+            timeline.note_delivered_token()
+            return _sse({"type": "token", "content": content})
+
         try:
             if enable_orchestra:
                 kb_ids: list[int] = []
@@ -539,8 +580,9 @@ class ChatService:
                         yield _sse(event)
                     elif evt_type == "token":
                         # Real provider tokens from the terminal agent.
-                        assistant_chunks.append(str(event.get("content") or ""))
-                        yield _sse(event)
+                        content = str(event.get("content") or "")
+                        assistant_chunks.append(content)
+                        yield emit_token(content)
                     elif evt_type == "retrieved_context":
                         turn_trace["retrieved_chunks"] = event.get("chunks") or []
                         yield _sse(event)
@@ -567,7 +609,7 @@ class ChatService:
                         final_answer = "(No content returned by Orchestra.)"
                     for token in _chunk_text(final_answer):
                         assistant_chunks.append(token)
-                        yield _sse({"type": "token", "content": token})
+                        yield emit_token(token)
 
             elif enable_tools:
                 # Knowledge-base grounding applies on the tools path too, not just
@@ -680,7 +722,7 @@ class ChatService:
                     final_answer = "(No content returned by the graph answer node.)"
                 for token in _chunk_text(final_answer):
                     assistant_chunks.append(token)
-                    yield _sse({"type": "token", "content": token})
+                    yield emit_token(token)
             else:
                 # Direct stream path with Redis memory buffer + optional RAG
                 llm_messages = self._build_llm_messages(
@@ -697,16 +739,18 @@ class ChatService:
                     turn_trace=turn_trace,
                 )
                 generate_step = tracker.start_step("generate")
+                timeline.mark("generation_start")
                 for token in llm.stream_chat_completion(
                     messages=llm_messages,
                     model=payload.model,
                     temperature=payload.temperature,
                 ):
                     assistant_chunks.append(token)
-                    yield _sse({"type": "token", "content": token})
+                    yield emit_token(token)
                 tracker.end_step(generate_step, status="done")
         except HTTPException as exc:
             detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
+            timeline.note_error(type(exc).__name__)
             for leftover in list(open_steps.values()):
                 tracker.end_step(leftover, status="error")
             open_steps.clear()
@@ -716,16 +760,18 @@ class ChatService:
                 final_response="",
                 status="error",
                 error_detail=detail,
-                snapshot={
-                    "system_prompt": base_system_prompt,
-                    **{k: v for k, v in turn_trace.items() if v not in (None, [], {})},
-                },
+                snapshot=self._trace_snapshot(
+                    timeline=timeline,
+                    base_system_prompt=base_system_prompt,
+                    turn_trace=turn_trace,
+                ),
             )
             self._record_token_spend(user_id=user.id, tracker=tracker)
             yield _sse({"type": "error", "detail": detail})
             return
         except Exception as exc:  # noqa: BLE001
             detail = f"Chat pipeline error: {exc}"
+            timeline.note_error(type(exc).__name__)
             for leftover in list(open_steps.values()):
                 tracker.end_step(leftover, status="error")
             open_steps.clear()
@@ -735,10 +781,11 @@ class ChatService:
                 final_response="",
                 status="error",
                 error_detail=detail,
-                snapshot={
-                    "system_prompt": base_system_prompt,
-                    **{k: v for k, v in turn_trace.items() if v not in (None, [], {})},
-                },
+                snapshot=self._trace_snapshot(
+                    timeline=timeline,
+                    base_system_prompt=base_system_prompt,
+                    turn_trace=turn_trace,
+                ),
             )
             self._record_token_spend(user_id=user.id, tracker=tracker)
             yield _sse({"type": "error", "detail": detail})
@@ -767,12 +814,12 @@ class ChatService:
         self.db.commit()
 
         tracker.update_snapshot(
-            system_prompt=base_system_prompt,
-            retrieved_chunks=turn_trace.get("retrieved_chunks") or [],
-            tool_calls=turn_trace.get("tools") or [],
-            orchestra_steps=turn_trace.get("orchestra_steps") or [],
-            graph_steps=turn_trace.get("graph_steps") or [],
-            route=turn_trace.get("route"),
+            **self._trace_snapshot(
+                timeline=timeline,
+                base_system_prompt=base_system_prompt,
+                turn_trace=turn_trace,
+                include_empty_lists=True,
+            )
         )
         traces.complete(
             execution,
@@ -820,8 +867,49 @@ class ChatService:
                 "latency_ms": execution.latency_ms,
                 "total_tokens": execution.total_tokens,
                 "total_cost_usd": float(execution.total_cost_usd or 0),
+                "ttft_provider_ms": timeline.marks_ms.get("first_provider_token"),
+                "ttft_delivered_ms": timeline.marks_ms.get("first_token_delivered"),
             }
         )
+
+    def _trace_snapshot(
+        self,
+        *,
+        timeline: LatencyTimeline,
+        base_system_prompt: str,
+        turn_trace: dict[str, Any],
+        include_empty_lists: bool = False,
+    ) -> dict[str, Any]:
+        """Snapshot fields shared by success and failure. Latency never raises."""
+        try:
+            timeline.mark("complete")
+            latency = timeline.as_dict()
+        except Exception:  # noqa: BLE001
+            latency = {}
+        snapshot: dict[str, Any] = {
+            "system_prompt": base_system_prompt,
+            "latency": latency,
+        }
+        if include_empty_lists:
+            snapshot.update(
+                {
+                    "retrieved_chunks": turn_trace.get("retrieved_chunks") or [],
+                    "tool_calls": turn_trace.get("tools") or [],
+                    "orchestra_steps": turn_trace.get("orchestra_steps") or [],
+                    "graph_steps": turn_trace.get("graph_steps") or [],
+                    "route": turn_trace.get("route"),
+                }
+            )
+        else:
+            snapshot.update(
+                {
+                    key: value
+                    for key, value in turn_trace.items()
+                    if value not in (None, [], {})
+                }
+            )
+        return snapshot
+
     def _build_llm_messages(
         self,
         *,

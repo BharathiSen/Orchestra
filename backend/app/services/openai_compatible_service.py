@@ -55,7 +55,19 @@ class OpenAICompatibleService:
         base = min(8.0, 2**attempt)
         time.sleep(base + random.uniform(0, 0.75))
 
+    def _note_retry(self) -> None:
+        from app.observability.latency import current_timeline
+
+        timeline = current_timeline()
+        if timeline is not None:
+            timeline.note_retry()
+
     def _timeout_error(self, exc: Exception) -> HTTPException:
+        from app.observability.latency import current_timeline
+
+        timeline = current_timeline()
+        if timeline is not None:
+            timeline.note_timeout()
         return HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail=(
@@ -75,6 +87,7 @@ class OpenAICompatibleService:
                     raise
                 if attempt >= self.max_retries - 1:
                     raise
+                self._note_retry()
                 self._sleep_backoff(attempt)
             except httpx.HTTPStatusError as exc:
                 last_exc = exc
@@ -82,6 +95,7 @@ class OpenAICompatibleService:
                     raise
                 if attempt >= self.max_retries - 1:
                     self._raise_http_error(exc.response.status_code, exc.response.text)
+                self._note_retry()
                 self._sleep_backoff(attempt)
         if last_exc:
             raise last_exc

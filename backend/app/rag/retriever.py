@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
 from app.knowledge.embedding import embed_texts
 from app.models import Document, DocumentChunk, KnowledgeBase
+from app.observability.latency import current_timeline
 
 
 @dataclass
@@ -34,7 +36,11 @@ class Retriever:
         if not question.strip() or not knowledge_base_ids:
             return []
 
+        embed_started = time.perf_counter()
         query_embedding = embed_texts([question])[0]
+        _record_stage("embedding", embed_started)
+
+        sql_started = time.perf_counter()
         rows = (
             self.db.query(
                 DocumentChunk,
@@ -54,7 +60,9 @@ class Retriever:
             .limit(top_k)
             .all()
         )
+        _record_stage("retrieval_sql", sql_started)
 
+        prepare_started = time.perf_counter()
         results: list[RetrievedChunk] = []
         for chunk, document, kb, distance in rows:
             # Convert cosine distance to similarity-like score for easier UI reading.
@@ -71,4 +79,12 @@ class Retriever:
                     score=score,
                 )
             )
+        _record_stage("retrieval_prepare", prepare_started)
         return results
+
+
+def _record_stage(name: str, started: float) -> None:
+    timeline = current_timeline()
+    if timeline is None:
+        return
+    timeline.add_duration(name, started)

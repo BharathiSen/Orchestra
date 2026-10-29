@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents import PlannerAgent, ResearchAgent, ReviewerAgent, WriterAgent
 from app.agents.fast_answer import FastAnswerAgent
+from app.observability.latency import current_timeline
 from app.orchestrator.routing import classify_route
 from app.orchestrator.state import OrchestraState
 from app.orchestrator.streaming import FinalAnswerFilter, PassthroughFilter
@@ -73,6 +74,9 @@ class OrchestraEngine:
         if route not in {"simple", "full"}:
             route = "full"
         state["route"] = route
+        timeline = current_timeline()
+        if timeline is not None:
+            timeline.mark("routing")
 
         agent_order = SIMPLE_ORDER if route == "simple" else FULL_ORDER
         current_idx = 0
@@ -210,6 +214,9 @@ class OrchestraEngine:
         )
 
         pieces: list[str] = []
+        timeline = current_timeline()
+        if timeline is not None:
+            timeline.mark("generation_start")
         try:
             for raw_token in self.llm.stream_chat_completion(
                 messages=final_state["final_messages"],

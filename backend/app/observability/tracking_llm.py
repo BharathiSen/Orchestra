@@ -8,6 +8,7 @@ from typing import Any
 
 from app.evaluation.cost import estimate_tokens
 from app.evaluation.tracker import ExecutionTracker
+from app.observability.latency import current_timeline
 from app.services.llm_types import ChatCompletionResult
 
 
@@ -55,6 +56,14 @@ class TrackingLLM:
             latency_ms=latency_ms,
             detail={"model": model, "has_tools": bool(tools)},
         )
+        self._note_llm(
+            model=model,
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            stream=False,
+            estimated=result.prompt_tokens is None and result.completion_tokens is None,
+        )
         return result
 
     def stream_chat_completion(
@@ -72,6 +81,7 @@ class TrackingLLM:
         # step detail records which of the two happened, so a cost figure is
         # never silently a guess.
         usage: dict[str, int] = {}
+        saw_token = False
         for token in self._llm.stream_chat_completion(
             messages=messages,
             model=model,
@@ -79,16 +89,57 @@ class TrackingLLM:
             tools=tools,
             usage_sink=usage,
         ):
+            if not saw_token:
+                saw_token = True
+                timeline = self._timeline()
+                if timeline is not None:
+                    timeline.note_provider_token()
             chunks.append(token)
             yield token
         latency_ms = int((time.perf_counter() - t0) * 1000)
         prompt_text = " ".join(str(m.get("content") or "") for m in messages)
         completion_text = "".join(chunks)
         measured = bool(usage.get("prompt_tokens") or usage.get("completion_tokens"))
+        input_tokens = usage.get("prompt_tokens") or estimate_tokens(prompt_text)
+        output_tokens = usage.get("completion_tokens") or estimate_tokens(completion_text)
         self.tracker.record_llm_usage(
             step_name=f"{self.step_prefix}_stream",
-            input_tokens=usage.get("prompt_tokens") or estimate_tokens(prompt_text),
-            output_tokens=usage.get("completion_tokens") or estimate_tokens(completion_text),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             latency_ms=latency_ms,
             detail={"model": model, "estimated": not measured, "stream": True},
+        )
+        self._note_llm(
+            model=model,
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            stream=True,
+            estimated=not measured,
+        )
+
+    def _timeline(self):
+        timeline = getattr(self.tracker, "timeline", None)
+        return timeline if timeline is not None else current_timeline()
+
+    def _note_llm(
+        self,
+        *,
+        model: str,
+        latency_ms: int,
+        input_tokens: int,
+        output_tokens: int,
+        stream: bool,
+        estimated: bool,
+    ) -> None:
+        timeline = self._timeline()
+        if timeline is None:
+            return
+        timeline.note_llm_call(
+            model=model,
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            stream=stream,
+            estimated=estimated,
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -199,16 +200,25 @@ class ResearchAgent:
             return [], ""
 
         workers = min(self.max_workers, max(1, len(jobs)))
+        # Each worker needs its own copy. One Context cannot be entered from
+        # several threads at once, and a thread pool does not inherit context
+        # vars on its own. The copy is what carries the request timeline into
+        # embedding and SQL timing.
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {}
             for kind, payload in jobs:
+                ctx = contextvars.copy_context()
                 if kind == "kb":
-                    futures[pool.submit(self._retrieve_one_kb, question, int(payload))] = (
+                    futures[
+                        pool.submit(ctx.run, self._retrieve_one_kb, question, int(payload))
+                    ] = (
                         "kb",
                         payload,
                     )
                 else:
-                    futures[pool.submit(self._reference_index_lookup, str(payload))] = ("search", None)
+                    futures[
+                        pool.submit(ctx.run, self._reference_index_lookup, str(payload))
+                    ] = ("search", None)
 
             for fut in as_completed(futures):
                 kind, _ = futures[fut]

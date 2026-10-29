@@ -129,6 +129,24 @@ export default function ExecutionDetailPage() {
   const snapshot = execution.snapshot || {};
   const retrieved = (snapshot.retrieved_chunks as unknown[]) || [];
   const tools = (snapshot.tool_calls as unknown[]) || [];
+  const latency = (snapshot.latency || null) as {
+    provider?: string | null;
+    model?: string | null;
+    marks_ms?: Record<string, number>;
+    durations_ms?: Record<string, number>;
+    ttft_provider_ms?: number | null;
+    ttft_delivered_ms?: number | null;
+    retries?: number;
+    timeouts?: number;
+    errors?: string[];
+    slowest_stage?: { stage?: string; duration_ms?: number } | null;
+    llm_calls?: { model?: string; latency_ms?: number; stream?: boolean; input_tokens?: number; output_tokens?: number }[];
+  } | null;
+  const slowestStep = execution.steps.reduce<(typeof execution.steps)[number] | null>(
+    (slowest, step) =>
+      !slowest || step.latency_ms > slowest.latency_ms ? step : slowest,
+    null,
+  );
 
   return (
     <main className="mx-auto min-h-dvh max-w-5xl px-6 py-10">
@@ -177,8 +195,68 @@ export default function ExecutionDetailPage() {
         <Metric label="API calls" value={String(execution.api_calls)} />
       </section>
 
+      {latency && (
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white/80 p-5">
+          <h2 className="font-display text-lg font-semibold">Request timeline</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Monotonic marks from when this turn was received.
+            {latency.provider ? ` Provider ${latency.provider}` : ""}
+            {latency.model ? ` · ${latency.model}` : ""}.
+          </p>
+          <dl className="mt-3 grid gap-2 sm:grid-cols-2 text-sm">
+            <div className="flex justify-between gap-4 rounded-lg bg-slate-50 px-3 py-2">
+              <dt className="text-slate-500">Time to first provider token</dt>
+              <dd className="font-medium">
+                {latency.ttft_provider_ms == null ? "—" : formatMs(latency.ttft_provider_ms)}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4 rounded-lg bg-slate-50 px-3 py-2">
+              <dt className="text-slate-500">Time to first token delivered</dt>
+              <dd className="font-medium">
+                {latency.ttft_delivered_ms == null ? "—" : formatMs(latency.ttft_delivered_ms)}
+              </dd>
+            </div>
+            {latency.slowest_stage?.stage && (
+              <div className="flex justify-between gap-4 rounded-lg bg-slate-50 px-3 py-2">
+                <dt className="text-slate-500">Slowest measured stage</dt>
+                <dd className="font-medium">
+                  {latency.slowest_stage.stage.replace(/_/g, " ")} ·{" "}
+                  {formatMs(latency.slowest_stage.duration_ms || 0)}
+                </dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-4 rounded-lg bg-slate-50 px-3 py-2">
+              <dt className="text-slate-500">Retries / timeouts</dt>
+              <dd className="font-medium">
+                {latency.retries || 0} / {latency.timeouts || 0}
+                {latency.errors && latency.errors.length > 0
+                  ? ` · ${latency.errors.join(", ")}`
+                  : ""}
+              </dd>
+            </div>
+          </dl>
+          {latency.durations_ms && Object.keys(latency.durations_ms).length > 0 && (
+            <ul className="mt-3 space-y-1 text-sm">
+              {Object.entries(latency.durations_ms)
+                .sort((a, b) => b[1] - a[1])
+                .map(([stage, ms]) => (
+                  <li key={stage} className="flex justify-between rounded-lg bg-slate-50 px-3 py-1.5">
+                    <span className="capitalize text-slate-600">{stage.replace(/_/g, " ")}</span>
+                    <span className="font-medium">{formatMs(ms)}</span>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       <section className="mb-6 rounded-2xl border border-slate-200 bg-white/80 p-5">
         <h2 className="font-display text-lg font-semibold">Pipeline steps</h2>
+        {slowestStep && execution.steps.length > 1 && (
+          <p className="mt-1 text-sm text-slate-600">
+            Slowest step: {slowestStep.step_name.replace(/_/g, " ")} · {formatMs(slowestStep.latency_ms)}
+          </p>
+        )}
         {execution.steps.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">No step records.</p>
         ) : (
@@ -203,6 +281,11 @@ export default function ExecutionDetailPage() {
                   <span className="font-medium capitalize">
                     {step.step_name.replace(/_/g, " ")}
                   </span>
+                  {slowestStep?.id === step.id && execution.steps.length > 1 && (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                      Slowest
+                    </span>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-3 text-xs text-slate-600">
                   <span>{formatMs(step.latency_ms)}</span>

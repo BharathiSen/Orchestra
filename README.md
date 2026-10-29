@@ -640,18 +640,75 @@ the provider.
 **Rate limiting**, verified with 10 parallel chat requests: exactly 3 succeeded
 (the concurrency cap) and 7 returned `429` with `Retry-After`.
 
+### Per-request timeline
+
+Each completed turn stores a `latency` object on the execution snapshot (and
+`ttft_provider_ms` / `ttft_delivered_ms` on the existing `done` SSE event).
+Marks use a monotonic clock from request receipt: auth, memory lookup, routing,
+embedding, retrieval SQL, each LLM call's duration and token counts, first
+provider token, first token handed to the client, retries, and timeouts. The
+execution detail page lists those stages and highlights the slowest step.
+Prompts and credentials are not copied into this object.
+
+The direct path and both Orchestra routes already stream provider tokens into
+the chat transcript as they arrive. The tools path still slices a finished
+answer; that is unchanged.
+
+### Reproducible harness
+
+`backend/scripts/benchmark_latency.py` runs a fixed set of labelled cases
+(direct chat, simple Orchestra, full Orchestra, tools, a personal/RAG skip, and
+a short edge input) against **FakeLLM**. It writes
+`backend/benchmarks/latency_harness.json` with p50/p95 latency, delivered TTFT,
+token and cost summaries, and the error rate.
+
+```bash
+cd backend
+python scripts/benchmark_latency.py
+```
+
+Those figures are harness overhead. They are not the hosted Groq numbers in the
+table above, and they are not a claim that the warm-TTFT targets (1s / 2s / 3s)
+have been re-measured on a live provider. Cold start — Render wake-up plus
+embedding warm-up — stays separate from warm request latency. Warm-up is still
+blocking at startup when `EMBEDDING_WARMUP_ENABLED` is on.
+
+One local run (FakeLLM, SQLite, 1 warmup + 5 repeats, 2026-10-28) wrote
+`backend/benchmarks/latency_harness.json`:
+
+| Case | Latency p50 | Latency p95 | TTFT p50 | Tokens p50 | Errors |
+|---|---:|---:|---:|---:|---:|
+| Direct chat | 68 ms | 73 ms | 41 ms | 18 | 0 |
+| Short edge (`?`) | 68 ms | 70 ms | 41 ms | 18 | 0 |
+| Orchestra simple | 84 ms | 85 ms | 56 ms | 36 | 0 |
+| Orchestra full | 82 ms | 88 ms | 57 ms | 72 | 0 |
+| Tools | 82 ms | 84 ms | 53 ms | 36 | 0 |
+| Personal question (KB skipped) | 83 ms | 87 ms | 56 ms | 36 | 0 |
+
+On this stub the wall clock barely moves between simple and full, because the
+model returns instantly. The full route still spends twice the tokens (72 vs
+36). That gap is the live-provider cost; it is not a reason to drop a stage
+without an answer-quality comparison.
+
+### Demo walkthrough
+
+1. Open the [live demo](https://orchestra.bharathis-ece2023.workers.dev/) and sign in with the shared account above.
+2. Open a project and send a short message with Orchestra off. Tokens should appear before the turn finishes.
+3. Send “What is my name?” with Orchestra on (simple route: planner, research, fast answer).
+4. Send a writing prompt such as “Write a short comparison of Redis and Postgres” (full route, including writer and reviewer).
+5. Open the execution from the trace link. Check per-step latency, the request timeline, retrieved chunks when a knowledge base is attached, and Replay.
+
 ---
 
 ## 🗺 Future Roadmap
 
 Ordered by impact. These are known gaps, stated plainly.
 
-- [ ] **Real evaluation harness.** Scores today are lexical heuristics — token
-      overlap between question and answer, labelled as such in the UI. A golden
-      dataset with rubric-scored LLM judging, wired into CI as a regression gate,
-      is the single highest-value addition. (Note: the test suite covers
-      *correctness of the machinery*, not *quality of the answers* — different
-      problems, and only the first one is solved.)
+- [ ] **Answer-quality evaluation.** A fixed latency harness
+      (`scripts/benchmark_latency.py`) now replays labelled pipeline cases and
+      records p50/p95, TTFT, tokens, and errors against FakeLLM. Scores in the
+      product are still lexical heuristics. Rubric-scored judging of live answers
+      is not implemented. The test suite covers the machinery, not answer quality.
 - [ ] **Genuine token streaming on the tools path.** Direct and both Orchestra
       routes now stream from the provider. The tools path still computes a
       complete answer and emits it in slices, because its answer node inspects

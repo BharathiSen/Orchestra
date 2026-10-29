@@ -1,0 +1,172 @@
+{
+  "measured_at": "2026-10-29T04:32:26.017508+00:00",
+  "provider": "fake",
+  "model": "llama-3.1-8b-instant",
+  "label": "In-process harness overhead with FakeLLM and SQLite or the configured test database. Not a live provider benchmark.",
+  "warmup_discarded": 1,
+  "repeats": 5,
+  "cases": [
+    {
+      "case_id": "direct_chat",
+      "category": "direct",
+      "message": "Hello there",
+      "notes": "Single streaming completion. No tools, no orchestra.",
+      "expect_route": null,
+      "errors": 0,
+      "error_rate": 0.0,
+      "runs": 5,
+      "latency_ms": {
+        "p50": 71.0,
+        "p95": 76.4,
+        "min": 68.0,
+        "max": 77.0
+      },
+      "ttft_delivered_ms": {
+        "p50": 45.0,
+        "p95": 46.6
+      },
+      "total_tokens": {
+        "p50": 18.0
+      },
+      "total_cost_usd": {
+        "p50": 1.05e-06,
+        "mean": 1.05e-06
+      }
+    },
+    {
+      "case_id": "direct_edge_short",
+      "category": "edge",
+      "message": "?",
+      "notes": "Short input that should still complete.",
+      "expect_route": null,
+      "errors": 0,
+      "error_rate": 0.0,
+      "runs": 5,
+      "latency_ms": {
+        "p50": 69.0,
+        "p95": 72.19999999999999,
+        "min": 67.0,
+        "max": 73.0
+      },
+      "ttft_delivered_ms": {
+        "p50": 41.0,
+        "p95": 44.6
+      },
+      "total_tokens": {
+        "p50": 18.0
+      },
+      "total_cost_usd": {
+        "p50": 1.05e-06,
+        "mean": 1.05e-06
+      }
+    },
+    {
+      "case_id": "orchestra_simple",
+      "category": "orchestra_simple",
+      "message": "What is my name?",
+      "notes": "Planner and research, then a streamed fast answer. Writer and reviewer skipped.",
+      "expect_route": "simple",
+      "errors": 0,
+      "error_rate": 0.0,
+      "runs": 5,
+      "latency_ms": {
+        "p50": 80.0,
+        "p95": 83.4,
+        "min": 80.0,
+        "max": 84.0
+      },
+      "ttft_delivered_ms": {
+        "p50": 55.0,
+        "p95": 55.8
+      },
+      "total_tokens": {
+        "p50": 36.0
+      },
+      "total_cost_usd": {
+        "p50": 2.16e-06,
+        "mean": 2.16e-06
+      }
+    },
+    {
+      "case_id": "orchestra_full",
+      "category": "orchestra_full",
+      "message": "Write a detailed blog comparing Redis and Postgres for session storage.",
+      "notes": "Planner, research, writer, then a streamed reviewer.",
+      "expect_route": "full",
+      "errors": 0,
+      "error_rate": 0.0,
+      "runs": 5,
+      "latency_ms": {
+        "p50": 85.0,
+        "p95": 93.8,
+        "min": 82.0,
+        "max": 95.0
+      },
+      "ttft_delivered_ms": {
+        "p50": 61.0,
+        "p95": 66.4
+      },
+      "total_tokens": {
+        "p50": 72.0
+      },
+      "total_cost_usd": {
+        "p50": 4.38e-06,
+        "mean": 4.38e-06
+      }
+    },
+    {
+      "case_id": "tools_arithmetic",
+      "category": "tools",
+      "message": "What is 17 + 25?",
+      "notes": "Tools graph. The answer node still emits precomputed slices.",
+      "expect_route": null,
+      "errors": 0,
+      "error_rate": 0.0,
+      "runs": 5,
+      "latency_ms": {
+        "p50": 82.0,
+        "p95": 83.0,
+        "min": 77.0,
+        "max": 83.0
+      },
+      "ttft_delivered_ms": {
+        "p50": 55.0,
+        "p95": 56.0
+      },
+      "total_tokens": {
+        "p50": 36.0
+      },
+      "total_cost_usd": {
+        "p50": 2.22e-06,
+        "mean": 2.22e-06
+      }
+    },
+    {
+      "case_id": "rag_personal_skips_kb",
+      "category": "rag",
+      "message": "What is my name?",
+      "notes": "Personal questions skip knowledge-base retrieval inside research. A corpus-backed groundedness check needs pgvector and uploaded chunks; this case only checks that the personal path still completes.",
+      "expect_route": "simple",
+      "errors": 0,
+      "error_rate": 0.0,
+      "runs": 5,
+      "latency_ms": {
+        "p50": 81.0,
+        "p95": 81.8,
+        "min": 79.0,
+        "max": 82.0
+      },
+      "ttft_delivered_ms": {
+        "p50": 55.0,
+        "p95": 56.8
+      },
+      "total_tokens": {
+        "p50": 36.0
+      },
+      "total_cost_usd": {
+        "p50": 2.16e-06,
+        "mean": 2.16e-06
+      }
+    }
+  ]
+}
