@@ -825,8 +825,9 @@ sample size — with `rag` up (4.75 → 5.0), `storage` down (5.0 → 4.75), and
   Identical prompts moved 0.02 between runs: as much as the prompt change did.
   "Degraded" means an agent hit a Groq 429 and the answer came from the
   fallback path; the runner judges those anyway. The cause is measurable, not
-  bad luck: **a complete full-route turn uses 7,000–8,000 tokens, and Groq's
-  free tier allows 8,000 per minute** on gpt-oss-20b. Back-to-back questions
+  bad luck: **a complete full-route turn uses about 4,500–8,000 tokens (paced run;
+  1,700–8,400 across all four runs), and Groq's free tier allows 8,000 tokens per
+  minute** on gpt-oss-20b. Back-to-back questions
   (3 s apart, the repeat run) degraded 4 of 5 full-route answers; 35 s apart
   (the paced run), 1 of 5. Pass `--pause 35` for runs meant as evidence.
 
