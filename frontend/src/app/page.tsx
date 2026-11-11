@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { getToken } from "@/lib/auth";
+import { warmBackend } from "@/lib/warm";
 
 /* Real figures from a full-route run on the deployed instance. They are kept
    here rather than invented so the hero panel matches what the product actually
@@ -250,6 +251,7 @@ export default function LandingPage() {
     const authed = Boolean(getToken());
     setSignedIn(authed);
     setCtaHref(authed ? "/dashboard" : "/login");
+    warmBackend();
   }, []);
 
   const showDemoCta = DEMO_ENABLED && !signedIn;

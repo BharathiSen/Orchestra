@@ -10,7 +10,7 @@ then inspect every run down to the token, the cost, and the millisecond, and rep
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Next.js](https://img.shields.io/badge/Next.js-15-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2-1C3C3C)](https://langchain-ai.github.io/langgraph/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20+%20pgvector-4169E1?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
@@ -196,7 +196,7 @@ the person across projects.
 </td><td valign="top">
 
 **Frontend**
-- Next.js 15 (App Router)
+- Next.js 16 (App Router, Turbopack builds)
 - React 19 · TypeScript 5.7
 - Tailwind CSS 3.4
 - react-markdown 9 + remark-gfm
@@ -460,7 +460,7 @@ Browser ──HTTPS──► Next.js frontend ──REST + SSE──► FastAPI 
 
 | Piece | Host used | Notes |
 |---|---|---|
-| Frontend | Cloudflare Workers (OpenNext) | `npm run deploy` |
+| Frontend | Cloudflare Workers (OpenNext) | `npm run deploy` — manual, not on push. Set `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_SITE_URL` in the shell, because a local `.env.local` overrides `.env.production` |
 | Backend | Render | Auto-deploys from `main` |
 | Postgres + pgvector | Neon | Enable the `vector` extension |
 | Redis | Upstash | The TLS `rediss://` URL works directly |
@@ -645,6 +645,17 @@ total were the same number. On the full route the gain is real but partial —
 roughly a second of the six — because the Reviewer emits its notes before its
 answer and the stream is held back until the `FINAL:` marker.
 
+**Page delivery.** Every page is prerendered, and none revalidates, so OpenNext
+serves them from Workers static assets and answers before the Next.js server
+loads (`staticAssetsIncrementalCache` + `enableCacheInterception`). Previously
+every request reported `x-nextjs-cache: MISS` and booted the server inside the
+Worker. Measured on a reused connection, live pages now answer in 80–160 ms,
+the same as a static font file from the same edge. Fonts are self-hosted with
+`next/font` (the old Google Fonts `@import` was blocked by the site's own CSP, so
+the design fonts never loaded), and the landing and login pages send one
+fire-and-forget request to `/health/live` so a sleeping backend starts booting
+before the visitor signs in.
+
 **Embedding warm-up** takes ~20 s at startup and removes a cold-start penalty that
 previously exceeded four minutes on the first grounded question. After warm-up
 the first RAG query completes in ~0.6 s — indistinguishable from a warm one.
@@ -784,8 +795,9 @@ tests written against that endpoint, and neither was visible from the UI.
 
 **Providers retire models; your database remembers them.** Groq decommissioned the
 default `llama-3.1-8b-instant`. Every agent, conversation, and env var that named
-it began returning a 404 — and because each Orchestra stage falls back to a default
-when its call fails, the demo kept "working" while serving canned output. Both
+it began returning a 404 — and because each Orchestra stage falls back when its
+call fails, the demo kept "working" while serving generic fallback text (raw
+reference-index results instead of a written answer). Both
 halves were bugs: the model ID needed resolving at the client, and the fallback
 needed to stop reporting itself as success.
 

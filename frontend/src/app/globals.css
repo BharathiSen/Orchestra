@@ -1,13 +1,10 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --font-space: "Space Grotesk", sans-serif;
-  --font-geist-sans: "IBM Plex Sans", sans-serif;
-}
+/* --font-space and --font-geist-sans are set on <html> by next/font in
+   layout.tsx. The fonts used to come from a Google Fonts @import here, which
+   the site's own CSP (style-src 'self') blocked, so they never loaded. */
 
 body {
   @apply bg-panel text-ink antialiased;

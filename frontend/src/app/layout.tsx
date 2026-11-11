@@ -1,7 +1,25 @@
 import type { Metadata, Viewport } from "next";
+import { IBM_Plex_Sans, Space_Grotesk } from "next/font/google";
 
 import DemoBanner from "@/components/DemoBanner";
 import "./globals.css";
+
+// Downloaded at build time and served from this origin: no third-party
+// request, nothing for the CSP to block, and size-adjusted fallbacks so text
+// does not shift when the webfont arrives.
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  weight: ["500", "700"],
+  variable: "--font-space",
+  display: "swap",
+});
+
+const plexSans = IBM_Plex_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-geist-sans",
+  display: "swap",
+});
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:13000";
 
@@ -58,7 +76,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${spaceGrotesk.variable} ${plexSans.variable}`}>
       <body className="font-sans">
         <DemoBanner />
         {children}

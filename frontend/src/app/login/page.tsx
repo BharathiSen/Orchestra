@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { ApiError, api } from "@/lib/api";
 import { getToken, saveSession } from "@/lib/auth";
+import { warmBackend } from "@/lib/warm";
 
 const DEMO_EMAIL = (process.env.NEXT_PUBLIC_DEMO_EMAIL || "").trim();
 const DEMO_PASSWORD = process.env.NEXT_PUBLIC_DEMO_PASSWORD || "";
@@ -23,7 +24,9 @@ export default function LoginPage() {
   useEffect(() => {
     if (getToken()) {
       router.replace("/dashboard");
+      return;
     }
+    warmBackend();
   }, [router]);
 
   const signInAsDemo = useCallback(async () => {
