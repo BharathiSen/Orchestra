@@ -23,6 +23,33 @@ then inspect every run down to the token, the cost, and the millisecond, and rep
 
 ---
 
+## For reviewers
+
+**Orchestra runs multi-agent LLM pipelines and records every run** — per-step
+latency, tokens, and cost — so an agent can be debugged, replayed, and evaluated
+instead of trusted. FastAPI + LangGraph + Postgres/pgvector + Redis behind a
+Next.js app.
+
+![A full-route Orchestra run: planner, research, writer and reviewer complete while the answer streams in](docs/demo.gif)
+
+**Try it:** [live demo](https://orchestra.bharathis-ece2023.workers.dev/) → **Try the demo**
+(one click, no signup). The free-tier backend sleeps when idle; if it is waking,
+the login page says so, and the first sign-in can take a minute.
+
+| | |
+|---|---|
+| **141 + 6 tests** | 141 backend tests against real Postgres + Redis in CI, plus 6 Playwright browser tests of the real frontend and backend |
+| **~100–260 ms** | warm page loads on the live site (measured on a reused connection); the backend answers in ~90–130 ms |
+| **~$0.0006 / turn** | average model cost per turn across the 12-question evaluation set ($0.0073 for the whole run) |
+
+**Where to look:** the [evaluation harness](#-evaluation) (LLM judge, prompt-versioned
+runs — including the one where my prompt change did *not* help), the
+[latency findings](#-performance) (the model migration made chat slower, and why),
+the execution trace page (`backend/app/observability/`), and
+[Lessons Learned](#-lessons-learned).
+
+---
+
 ## Overview
 
 Most agent projects stop at *"the LLM replied."* The hard part starts after that:
@@ -660,10 +687,11 @@ before the visitor signs in.
 previously exceeded four minutes on the first grounded question. After warm-up
 the first RAG query completes in ~0.6 s — indistinguishable from a warm one.
 
-**Provider cold starts dominate a single sample.** The first Groq call after an
-idle period measured 3.9 s TTFT on the direct path; the next three measured 0.26,
-0.21, and 0.23 s. Any one-shot latency figure for an LLM app is mostly measuring
-the provider.
+**Provider variance dominates a single sample.** On the retired Llama model the
+first call after an idle period measured 3.9 s TTFT on the direct path and the
+next three 0.26, 0.21, and 0.23 s. On gpt-oss-20b, four raw Groq calls measured
+1.19 – 1.99 s. Any one-shot latency figure for an LLM app is mostly measuring the
+provider.
 
 **Rate limiting**, verified with 10 parallel chat requests: exactly 3 succeeded
 (the concurrency cap) and 7 returned `429` with `Retry-After`.
@@ -728,6 +756,62 @@ without an answer-quality comparison.
 
 ---
 
+## 📏 Evaluation
+
+Tests prove the machinery works; they say nothing about whether answers are any
+good. `backend/scripts/run_eval.py` measures that, offline, with a live model:
+
+1. **A fixed golden set** (`app/evaluation/golden_set.py`): 12 questions in three
+   groups — grounded in Orchestra's own reference index, engineering
+   comparisons that take the full pipeline, and short factual questions. Each
+   lists the key points a correct answer must cover.
+2. **An LLM judge** (`gpt-oss-120b`, temperature 0) grades each answer 1–5 on
+   correctness, completeness, relevance, and clarity *against those key points*,
+   not against its own opinion, with a written rationale. Replies that are not
+   valid scores are recorded as errors, never guessed.
+3. **Versioned prompts.** Every run stores a hash of `app/prompts/`, of the judge
+   prompt, and of the golden set, so a prompt edit shows up as a new point on the
+   Evaluations page and runs on different question sets are never compared.
+
+Every run is a JSON file in `backend/evals/runs/` (committed — it is the
+evidence) and a row in the database that the Evaluations page charts.
+Answers produced after an agent failed are still judged: skipping them would
+drop the worst answers from the average.
+
+### What the first two runs showed
+
+| Run | Prompts | Overall | Correctness | Completeness | Cost | p50 per question |
+|---|---|---:|---:|---:|---:|---:|
+| baseline | `997678d0` | 4.917 | 5.00 | 4.67 | $0.0073 | 5.5 s |
+| grounded writer | `2979535e` | 4.896 | 4.92 | 4.67 | $0.0076 | 6.2 s |
+
+The second run changed the Writer and Reviewer prompts (address the user's
+specific context; never cite sources absent from the research notes), aiming at
+two baseline weaknesses. **It did not help.** Overall moved 0.02 — noise at this
+sample size — with `rag` up (4.75 → 5.0), `storage` down (5.0 → 4.75), and
+`rate-limiting` down (4.25 → 4.0). The honest conclusions:
+
+- **The set is too easy to separate prompts.** 10 of 12 questions score 5.0 on
+  both runs. A ceiling effect means small differences cannot be seen.
+- **One weakness is real and unchanged.** "Write a short checklist for rate
+  limiting an LLM API endpoint" scored completeness 2/5 both times: the pipeline
+  produces a generic API-gateway checklist and misses per-user concurrency limits
+  and token-budget caps. Prompt wording did not fix it.
+- **Single runs are not evidence.** Each prompt version was run once, by one judge
+  model; two answers in each run were degraded by Groq 429s. A claim of
+  improvement would need repeated runs and a harder set.
+
+```bash
+cd backend
+python scripts/run_eval.py --label "my change" --notes "what changed"   # ~10 min, ~1 cent
+python scripts/run_eval.py import evals/runs/*.json                     # load runs into a database
+```
+
+Runs make real, billed model calls, so they are never triggered from the browser
+or from CI; `tests/test_evals.py` covers the machinery with a stub model.
+
+---
+
 ## 🗺 Future Roadmap
 
 Ordered by impact. These are known gaps, stated plainly.
@@ -735,8 +819,9 @@ Ordered by impact. These are known gaps, stated plainly.
 - [x] **Answer-quality evaluation.** `scripts/run_eval.py` runs a fixed golden
       set through the live pipeline and grades it with an LLM judge; results are
       charted per prompt version on the Evaluations page (see
-      [Evaluation](#-evaluation)). Still open: the golden set is small (12
-      questions), judged by one model, and run by hand rather than on every
+      [Evaluation](#-evaluation)). Still open: the golden set is too easy (10 of
+      12 questions score 5.0, so prompt changes cannot be told apart), judged by
+      one model, run once per version, and run by hand rather than on every
       prompt change.
 - [ ] **Genuine token streaming on the tools path.** Direct and both Orchestra
       routes now stream from the provider. The tools path still computes a
