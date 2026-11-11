@@ -42,7 +42,8 @@ Next.js.
 
 The [live demo](https://orchestra.bharathis-ece2023.workers.dev/) has a shared
 account with a seeded workspace — two agents, a knowledge base, and 20 traced
-executions across four pipelines.
+executions across four pipelines. Click **Try the demo** on the landing page to
+sign in with one click, or use the credentials below.
 
 ```
 email:    demo@orchestra.dev
@@ -72,11 +73,11 @@ password: orchestra-demo
 | 🔧 | **Schema-driven tools** | A registry with a safe AST calculator (never `eval`), live weather via Open-Meteo, and a built-in reference index |
 | 📚 | **RAG on pgvector** | Upload PDF/DOCX/TXT → extract → chunk → embed (BGE-small, 384-d) → retrieve, all inside PostgreSQL |
 | 🧠 | **Two-tier memory** | Redis rolling conversation buffer with summarization on overflow, plus durable user facts in Postgres that persist across conversations |
-| 🔬 | **Execution tracing** | Per-step latency, tokens, and cost for every run — searchable, filterable, with a snapshot for replay |
+| 🔬 | **Execution tracing** | Per-step latency, tokens, and cost for every run — searchable, filterable, with a snapshot for replay. A run where an agent failed but the pipeline still answered is recorded as `degraded`, not a clean success |
 | ⏪ | **Replay** | Re-run a stored prompt with its original pipeline flags to compare behaviour |
 | 🚦 | **Three-axis rate limiting** | Requests per minute, concurrent streams, and a daily token budget — because none of the three bounds the others |
 | 📡 | **SSE streaming** | Real provider token streaming on the direct and both Orchestra routes, with live agent-step events, rendered as Markdown with tables and syntax-highlighted code *(the tools path buffers — see [roadmap](#-future-roadmap))* |
-| 🧪 | **Tested behaviour** | 90 backend integration tests covering auth, ownership isolation, the SSE contract, all three pipelines, every rate limit, and the pgvector query — run in CI against real Postgres and Redis |
+| 🧪 | **Tested behaviour** | 105 backend integration tests covering auth, ownership isolation, the SSE contract, all three pipelines, every rate limit, and the pgvector query — run in CI against real Postgres and Redis |
 
 ---
 
@@ -213,7 +214,11 @@ the person across projects.
 </table>
 
 **LLM providers:** Groq, Google Gemini, or Ollama — selected with one env var, all
-behind a single `complete_chat` interface.
+behind a single `complete_chat` interface. The Groq default is
+`openai/gpt-oss-20b`; `gpt-oss-120b` and `qwen3.8-27b` are selectable in the chat.
+Groq retires models without notice, so a saved agent that still names a retired ID
+(such as `llama-3.1-8b-instant`) is routed to a live replacement at call time
+instead of failing every request with a 404.
 
 ---
 
@@ -402,6 +407,7 @@ observability screens have data. Idempotent; `--reset` rebuilds,
 | `MAX_REQUEST_BYTES` | `26214400` | Request body cap (25 MB) |
 | `LLM_REQUEST_TIMEOUT_SECONDS` | `60` | Per provider call |
 | `LLM_MAX_RETRIES` | `3` | Retry budget on rate-limit responses |
+| `GROQ_DEFAULT_MODEL` | `openai/gpt-oss-20b` | Model used when an agent or request does not name one. A retired ID set here is mapped to its replacement |
 | `EMBEDDING_WARMUP_ENABLED` | `true` | Load the embedding model at startup |
 | `UPLOAD_DIR` | `/data/uploads` | Outside `/app` so the dev bind mount can't shadow it |
 
@@ -466,7 +472,10 @@ Browser ──HTTPS──► Next.js frontend ──REST + SSE──► FastAPI 
 `postgres://` URL, which SQLAlchemy cannot resolve a driver for.
 
 **`NEXT_PUBLIC_*` is inlined at build time.** Changing one requires a rebuild, not
-a restart.
+a restart. The hosted demo's values live in `frontend/.env.production` (they are
+public by nature), so a build that forgets to export them can no longer ship a
+site without its "Try the demo" button. Real environment variables still override
+that file.
 
 **`CORS_ORIGINS` is compared literally** — no wildcards, no trailing slashes. A
 mismatch shows up as a browser CORS error on every authenticated call while
@@ -564,6 +573,19 @@ layout uses `dvh`, with `vh` retained as the fallback line beneath it.
 
 </details>
 
+<details>
+<summary><b>Resolve retired model IDs at the client, not in the database</b></summary>
+
+When Groq retired `llama-3.1-8b-instant`, the old ID was stored in agents,
+conversations, and env vars. A migration would fix the rows that exist today but
+not the next retirement, and not an env var on a host nobody remembers to update.
+Instead the Groq client holds a small alias table and rewrites the model name as
+each request is built. Stored data keeps the name the user chose; the provider
+receives one that exists. The cost is a table that must be kept current — a test
+asserts every alias points at a model that is actually listed.
+
+</details>
+
 ---
 
 ## 🔒 Production Features
@@ -578,9 +600,11 @@ layout uses `dvh`, with `vh` retained as the fallback line beneath it.
 | **Ownership** | Every project-scoped resource is reachable only by its owner; unauthorized access returns 404, not 403 |
 | **Health probes** | Split liveness and readiness, with 503 on dependency failure |
 | **Containers** | Multi-stage builds, non-root user, `HEALTHCHECK`, secrets excluded from build context |
-| **Testing** | 90 backend integration tests against real Postgres + Redis service containers, with a stubbed LLM so no test makes a network call. Ownership, rate limits, the SSE event contract, all three pipelines, the retrieval trust boundary, and the pgvector query |
+| **Testing** | 105 backend integration tests against real Postgres + Redis service containers, with a stubbed LLM so no test makes a network call. Ownership, rate limits, the SSE event contract, all three pipelines, the retrieval trust boundary, and the pgvector query |
 | **CI** | Ruff, `compileall`, pytest (incl. pgvector, and a guard that fails if those tests are skipped), a startup-validation assertion, ESLint, `tsc`, `next build`, and both Docker image builds |
 | **Graceful degradation** | Redis down degrades memory; retrieval failure yields an ungrounded answer; neither returns a 500 |
+| **Honest run status** | `completed`, `degraded` (an agent failed but a fallback still answered), or `error`. Only `completed` counts toward the success rate, so a fallback cannot hide a failing provider |
+| **Provider drift** | Retired model IDs are resolved to a live model at the client; gpt-oss models run with low reasoning effort to keep each pipeline stage fast |
 
 ---
 
@@ -757,6 +781,22 @@ gone out — an unauthorized request got 200 and a truncated body instead of 404
 For the same reason, a `Depends(get_db)` session outlived its own teardown and
 was released only at garbage collection. Both were found by the first integration
 tests written against that endpoint, and neither was visible from the UI.
+
+**Providers retire models; your database remembers them.** Groq decommissioned the
+default `llama-3.1-8b-instant`. Every agent, conversation, and env var that named
+it began returning a 404 — and because each Orchestra stage falls back to a default
+when its call fails, the demo kept "working" while serving canned output. Both
+halves were bugs: the model ID needed resolving at the client, and the fallback
+needed to stop reporting itself as success.
+
+**A success rate that ignores failed steps is decoration.** Executions with two
+failed agents were recorded as `completed` and counted toward a 100% success rate.
+They are now `degraded`.
+
+**A different model is a different output format.** A reasoning model wrote the
+Reviewer's `FINAL` marker as a bold heading, which the parser did not recognise, so
+the review notes were streamed into the user's answer. The marker matcher is now
+shared by the streaming and non-streaming paths so they cannot disagree.
 
 **Honest labels beat impressive ones.** The scorer reports
 `"Heuristic scores (no LLM judge)"` rather than calling itself accuracy. Naming a

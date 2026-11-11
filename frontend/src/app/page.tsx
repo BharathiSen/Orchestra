@@ -316,7 +316,7 @@ export default function LandingPage() {
                   <b>3</b> pipelines
                 </span>
                 <span>
-                  <b>90</b> tests
+                  <b>105</b> tests
                 </span>
                 <span>
                   <b>MIT</b> licensed
