@@ -1,0 +1,1 @@
+Orchestra: every agent run is a record, not a receipt. A traced multi-agent execution showing per-step latency, tokens, and cost.

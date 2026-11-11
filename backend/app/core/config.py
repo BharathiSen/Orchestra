@@ -120,7 +120,8 @@ class Settings(BaseSettings):
     @property
     def active_llm_provider(self) -> str:
         value = (self.llm_provider or "groq").strip().lower()
-        if value not in {"gemini", "groq", "ollama"}:
+        # "fake" is the deterministic end-to-end test stub; refused in production.
+        if value not in {"gemini", "groq", "ollama", "fake"}:
             return "groq"
         return value
 

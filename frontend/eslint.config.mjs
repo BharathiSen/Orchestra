@@ -26,14 +26,10 @@ const config = [
   },
   {
     rules: {
-      // New in the React-Compiler-era hooks plugin that ships with Next 16.
-      // All 16 hits are one pattern: read the session from localStorage (or
-      // start a client fetch) after mount, then set state. That is how browser-
-      // only state has to enter a prerendered page; the rule's preferred fix is
-      // a useSyncExternalStore-based session hook, which is a refactor of every
-      // page, not part of a framework upgrade. Kept visible as a warning so the
-      // refactor stays on the list instead of being silenced.
-      "react-hooks/set-state-in-effect": "warn",
+      // Enforced as an error. The session lives in a useSyncExternalStore hook
+      // (lib/auth.ts useSession) and effects fetch, then set state in callbacks
+      // behind a `cancelled` guard — see any page under app/projects/[id].
+      "react-hooks/set-state-in-effect": "error",
       // Unused variables are a real signal in this codebase; the underscore
       // prefix is the documented way to mark a deliberate discard.
       "@typescript-eslint/no-unused-vars": [

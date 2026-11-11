@@ -1,0 +1,91 @@
+name: Deploy frontend
+
+# The backend redeploys itself (Render watches `main`); the frontend did not, so
+# the live demo repeatedly ran an older build than the repository. This deploys
+# the frontend to Cloudflare Workers after CI passes on `main`, then checks the
+# live site actually changed rather than trusting the deploy log.
+#
+# Needs two repository secrets (Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN   token with the "Edit Cloudflare Workers" template
+#   CLOUDFLARE_ACCOUNT_ID  from the Workers dashboard sidebar
+# Without them the job skips with a notice instead of failing.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy to Cloudflare
+    # Only a green CI run on main (or a manual trigger) may deploy.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SITE_URL: https://orchestra.bharathis-ece2023.workers.dev
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Check for Cloudflare credentials
+        id: creds
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set; skipping deploy."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          # Deploy exactly the commit CI tested, not whatever main is now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        if: steps.creds.outputs.ready == 'true'
+        run: npm ci
+
+      - name: Build and deploy
+        if: steps.creds.outputs.ready == 'true'
+        # NEXT_PUBLIC_* come from frontend/.env.production (committed). There is
+        # no .env.local in CI, so nothing can silently override them.
+        run: npm run deploy
+
+      - name: Verify the live site changed
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          html="$(curl -fsS "$SITE_URL/login")"
+          chunks="$(printf '%s' "$html" | grep -oE '/_next/static/chunks/[^"]+\.js' | sort -u)"
+          found=""
+          for chunk in $chunks; do
+            if curl -fsS "$SITE_URL$chunk" | grep -q "demo@orchestra.dev"; then found="$chunk"; break; fi
+          done
+          if [ -z "$found" ]; then
+            echo "::error::Live login bundle has no demo account — NEXT_PUBLIC_DEMO_* missing from the build."
+            exit 1
+          fi
+          curl -fsS "$SITE_URL/" | grep -q "Try the demo" \
+            || { echo "::error::Live landing page has no 'Try the demo' button."; exit 1; }
+          echo "Live site verified: demo sign-in present ($found)."

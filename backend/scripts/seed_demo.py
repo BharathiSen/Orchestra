@@ -22,6 +22,7 @@ vectors, so retrieval will not return them.
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import sys
 from datetime import UTC, datetime, timedelta
@@ -37,6 +38,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 from app.core.database import Base, SessionLocal, engine  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.evaluation.cost import calculate_cost_usd  # noqa: E402
+from app.evaluation.eval_runner import save_run  # noqa: E402
 from app.models import (  # noqa: E402
     Agent,
     Conversation,
@@ -432,6 +434,23 @@ def _seed_executions(
     return created
 
 
+EVAL_RUNS_DIR = Path(__file__).resolve().parent.parent / "evals" / "runs"
+
+
+def _import_eval_runs(db: Session) -> None:
+    """Load the committed evaluation runs so the Evaluations page has data.
+
+    These are real runs against a live model, recorded with
+    scripts/run_eval.py. Idempotent on each run's uid.
+    """
+    files = sorted(EVAL_RUNS_DIR.glob("*.json"))
+    created = 0
+    for path in files:
+        _, was_created = save_run(db, json.loads(path.read_text(encoding="utf-8")))
+        created += was_created
+    print(f"  evaluation runs: {created} imported, {len(files) - created} already present")
+
+
 def seed(*, email: str, password: str, reset: bool, skip_embeddings: bool) -> None:
     Base.metadata.create_all(bind=engine)
 
@@ -451,6 +470,7 @@ def seed(*, email: str, password: str, reset: bool, skip_embeddings: bool) -> No
             rng=random.Random(20260806),
         )
         db.commit()
+        _import_eval_runs(db)
     except Exception:
         db.rollback()
         raise

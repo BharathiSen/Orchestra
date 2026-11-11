@@ -58,7 +58,12 @@ def _collect_problems(settings: Settings) -> tuple[list[str], list[str]]:
         )
 
     provider = settings.active_llm_provider
-    if provider == "groq" and not settings.groq_configured:
+    if provider == "fake":
+        fatal.append(
+            "LLM_PROVIDER=fake is the deterministic end-to-end test stub and must "
+            "never serve real traffic."
+        )
+    elif provider == "groq" and not settings.groq_configured:
         fatal.append("LLM_PROVIDER=groq but GROQ_API_KEY is empty — chat cannot serve traffic.")
     elif provider == "gemini" and not settings.gemini_configured:
         fatal.append("LLM_PROVIDER=gemini but GEMINI_API_KEY is empty — chat cannot serve traffic.")

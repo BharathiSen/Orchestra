@@ -58,3 +58,7 @@ Thumbs.db
 docker/data/
 backend/uploads/
 uploads/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/

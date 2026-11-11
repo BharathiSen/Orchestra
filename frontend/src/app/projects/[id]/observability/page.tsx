@@ -12,7 +12,7 @@ import {
   type MetricsBreakdown,
   type Project,
 } from "@/lib/api";
-import { clearSession, getToken } from "@/lib/auth";
+import { clearSession, useSession } from "@/lib/auth";
 
 function formatMs(ms: number) {
   if (ms >= 1000) return `${(ms / 1000).toFixed(2)} sec`;
@@ -39,6 +39,7 @@ export default function ObservabilityPage() {
   const params = useParams<{ id: string }>();
   const projectId = Number(params.id);
 
+  const { ready, token } = useSession();
   const [project, setProject] = useState<Project | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [metrics, setMetrics] = useState<MetricsBreakdown | null>(null);
@@ -51,48 +52,58 @@ export default function ObservabilityPage() {
   const [status, setStatus] = useState("");
   const [pipeline, setPipeline] = useState("");
 
-  const loadDashboard = useCallback(
-    async (token: string) => {
-      const [projectData, sum, mets] = await Promise.all([
-        api.getProject(token, projectId),
-        api.dashboardSummary(token, projectId),
-        api.dashboardMetrics(token, projectId),
-      ]);
-      setProject(projectData);
-      setSummary(sum);
-      setMetrics(mets);
-    },
+  const fetchDashboard = useCallback(
+    (authToken: string) =>
+      Promise.all([
+        api.getProject(authToken, projectId),
+        api.dashboardSummary(authToken, projectId),
+        api.dashboardMetrics(authToken, projectId),
+      ]),
     [projectId],
   );
 
-  const loadExecutions = useCallback(
-    async (
-      token: string,
+  const fetchExecutions = useCallback(
+    (
+      authToken: string,
       filters: { q?: string; status?: string; pipeline?: string } = {},
-    ) => {
-      const rows = await api.listExecutions(token, projectId, {
+    ) =>
+      api.listExecutions(authToken, projectId, {
         limit: 50,
         q: filters.q || undefined,
         status: filters.status || undefined,
         pipeline: filters.pipeline || undefined,
-      });
-      setExecutions(rows);
-    },
+      }),
     [projectId],
   );
+
+  async function loadExecutions(
+    authToken: string,
+    filters: { q?: string; status?: string; pipeline?: string } = {},
+  ) {
+    setExecutions(await fetchExecutions(authToken, filters));
+  }
 
   useEffect(() => {
     if (!Number.isFinite(projectId)) {
       router.replace("/projects");
       return;
     }
-    const token = getToken();
+    if (!ready) return;
     if (!token) {
       router.replace("/login");
       return;
     }
-    Promise.all([loadDashboard(token), loadExecutions(token)])
+    let cancelled = false;
+    Promise.all([fetchDashboard(token), fetchExecutions(token)])
+      .then(([[projectData, sum, mets], rows]) => {
+        if (cancelled) return;
+        setProject(projectData);
+        setSummary(sum);
+        setMetrics(mets);
+        setExecutions(rows);
+      })
       .catch((err) => {
+        if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
           clearSession();
           router.replace("/login");
@@ -100,12 +111,16 @@ export default function ObservabilityPage() {
         }
         setError(err instanceof Error ? err.message : "Failed to load");
       })
-      .finally(() => setLoading(false));
-  }, [loadDashboard, loadExecutions, projectId, router]);
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, token, fetchDashboard, fetchExecutions, projectId, router]);
 
   async function onSearch(event: FormEvent) {
     event.preventDefault();
-    const token = getToken();
     if (!token) {
       router.replace("/login");
       return;
@@ -130,7 +145,6 @@ export default function ObservabilityPage() {
     setQ("");
     setStatus("");
     setPipeline("");
-    const token = getToken();
     if (!token) return;
     setSearching(true);
     loadExecutions(token)
@@ -146,8 +160,8 @@ export default function ObservabilityPage() {
         <p className="font-display text-sm font-semibold tracking-[0.2em] text-accent uppercase">
           Orchestra
         </p>
-        <p className="mt-4 text-slate-500">Loading execution history…</p>
-        <div className="mt-6 h-1 w-40 overflow-hidden rounded bg-slate-200">
+        <p className="mt-4 text-fg-subtle">Loading execution history…</p>
+        <div className="mt-6 h-1 w-40 overflow-hidden rounded bg-line">
           <div className="h-full w-1/2 animate-pulse bg-accent/60" />
         </div>
       </main>
@@ -166,36 +180,36 @@ export default function ObservabilityPage() {
           <h1 className="mt-1 font-display text-3xl font-bold">
             Execution History
           </h1>
-          <p className="mt-1 text-slate-600">
+          <p className="mt-1 text-fg-muted">
             {project?.name || "Project"} — tokens, cost, latency, and traces.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
             href={`/projects/${projectId}/chat`}
-            className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            className="rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-ground hover:bg-fg-muted"
           >
             Open Chat
           </Link>
           <Link
             href={`/projects/${projectId}`}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+            className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
           >
             Agents
           </Link>
         </div>
       </header>
 
-      <nav className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+      <nav className="mb-6 flex flex-wrap gap-2 border-b border-line pb-3">
         <Link
           href={`/projects/${projectId}`}
-          className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-fg-muted hover:bg-raised"
         >
           Agents
         </Link>
         <Link
           href={`/projects/${projectId}/chat`}
-          className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-fg-muted hover:bg-raised"
         >
           Chat
         </Link>
@@ -208,7 +222,7 @@ export default function ObservabilityPage() {
       </nav>
 
       {error && (
-        <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p className="mb-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
           {error}
         </p>
       )}
@@ -230,19 +244,19 @@ export default function ObservabilityPage() {
       )}
 
       {metrics && Object.keys(metrics.step_avg_latency_ms).length > 0 && (
-        <section className="mb-8 rounded-2xl border border-slate-200 bg-white/80 p-5">
+        <section className="mb-8 rounded-2xl border border-line bg-surface/80 p-5">
           <h2 className="font-display text-lg font-semibold">Step latency (24h)</h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-fg-muted">
             Average time per pipeline stage — find bottlenecks fast.
           </p>
           <ul className="mt-4 grid gap-2 sm:grid-cols-2">
             {Object.entries(metrics.step_avg_latency_ms).map(([name, ms]) => (
               <li
                 key={name}
-                className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"
+                className="flex items-center justify-between rounded-lg bg-raised px-3 py-2 text-sm"
               >
                 <span className="font-medium capitalize">{name.replace(/_/g, " ")}</span>
-                <span className="text-slate-600">{formatMs(ms)}</span>
+                <span className="text-fg-muted">{formatMs(ms)}</span>
               </li>
             ))}
           </ul>
@@ -252,7 +266,7 @@ export default function ObservabilityPage() {
       <section>
         <div className="mb-4">
           <h2 className="font-display text-xl font-semibold">Executions</h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-fg-muted">
             Search by prompt text, filter by status or pipeline, then open a row
             for steps, snapshot, and replay.
           </p>
@@ -260,23 +274,23 @@ export default function ObservabilityPage() {
 
         <form
           onSubmit={onSearch}
-          className="mb-6 flex flex-wrap items-end gap-3 border-b border-slate-200 pb-5"
+          className="mb-6 flex flex-wrap items-end gap-3 border-b border-line pb-5"
         >
           <label className="min-w-[12rem] flex-1 text-sm">
-            <span className="mb-1 block text-slate-600">Search</span>
+            <span className="mb-1 block text-fg-muted">Search</span>
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Prompt, response, model…"
-              className="w-full rounded-lg border border-slate-300 bg-white/80 px-3 py-2 outline-none ring-accent focus:ring-2"
+              className="w-full rounded-lg border border-line-strong bg-surface/80 px-3 py-2 outline-none ring-accent focus:ring-2"
             />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Status</span>
+            <span className="mb-1 block text-fg-muted">Status</span>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="rounded-lg border border-slate-300 bg-white/80 px-3 py-2 outline-none ring-accent focus:ring-2"
+              className="rounded-lg border border-line-strong bg-surface/80 px-3 py-2 outline-none ring-accent focus:ring-2"
             >
               <option value="">All</option>
               {STATUS_OPTIONS.filter(Boolean).map((opt) => (
@@ -287,11 +301,11 @@ export default function ObservabilityPage() {
             </select>
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Pipeline</span>
+            <span className="mb-1 block text-fg-muted">Pipeline</span>
             <select
               value={pipeline}
               onChange={(e) => setPipeline(e.target.value)}
-              className="rounded-lg border border-slate-300 bg-white/80 px-3 py-2 outline-none ring-accent focus:ring-2"
+              className="rounded-lg border border-line-strong bg-surface/80 px-3 py-2 outline-none ring-accent focus:ring-2"
             >
               <option value="">All</option>
               {PIPELINE_OPTIONS.filter(Boolean).map((opt) => (
@@ -304,7 +318,7 @@ export default function ObservabilityPage() {
           <button
             type="submit"
             disabled={searching}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-ground hover:brightness-110 disabled:opacity-60"
           >
             {searching ? "Searching…" : "Search"}
           </button>
@@ -313,7 +327,7 @@ export default function ObservabilityPage() {
               type="button"
               onClick={onClearFilters}
               disabled={searching}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white disabled:opacity-60"
+              className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised disabled:opacity-60"
             >
               Clear
             </button>
@@ -321,15 +335,15 @@ export default function ObservabilityPage() {
         </form>
 
         {searching ? (
-          <p className="rounded-lg border border-dashed border-slate-300 bg-white/50 px-4 py-10 text-center text-slate-500">
+          <p className="rounded-lg border border-dashed border-line-strong bg-surface/50 px-4 py-10 text-center text-fg-subtle">
             Searching executions…
           </p>
         ) : executions.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-300 bg-white/50 px-4 py-12 text-center">
-            <p className="font-display text-lg font-semibold text-ink">
+          <div className="rounded-lg border border-dashed border-line-strong bg-surface/50 px-4 py-12 text-center">
+            <p className="font-display text-lg font-semibold text-fg">
               {hasFilters ? "No matching executions" : "No executions yet"}
             </p>
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-2 text-sm text-fg-subtle">
               {hasFilters
                 ? "Try a broader search or clear filters."
                 : "Send a chat message to start tracing tokens, cost, and latency."}
@@ -349,7 +363,7 @@ export default function ObservabilityPage() {
               <li key={ex.id}>
                 <Link
                   href={`/projects/${projectId}/executions/${ex.id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white/80 px-4 py-3 transition hover:border-accent"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface/80 px-4 py-3 transition hover:border-accent"
                 >
                   <div>
                     <p className="font-medium">
@@ -357,22 +371,22 @@ export default function ObservabilityPage() {
                       <span
                         className={
                           ex.success
-                            ? "text-teal-700"
+                            ? "text-accent"
                             : ex.status === "error"
-                              ? "text-red-600"
+                              ? "text-red-300"
                               : ex.status === "degraded"
-                                ? "text-amber-600"
-                                : "text-slate-500"
+                                ? "text-amber-300"
+                                : "text-fg-subtle"
                         }
                       >
                         · {ex.status}
                       </span>
                     </p>
-                    <p className="mt-0.5 line-clamp-1 text-sm text-slate-600">
+                    <p className="mt-0.5 line-clamp-1 text-sm text-fg-muted">
                       {ex.prompt || "(empty prompt)"}
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-3 text-xs font-medium text-slate-500">
+                  <div className="flex flex-wrap gap-3 text-xs font-medium text-fg-subtle">
                     <span>{ex.pipeline}</span>
                     <span>{formatMs(ex.latency_ms)}</span>
                     <span>{ex.total_tokens.toLocaleString()} tokens</span>
@@ -390,8 +404,8 @@ export default function ObservabilityPage() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
-      <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">
+    <div className="rounded-2xl border border-line bg-surface/80 px-4 py-4">
+      <p className="text-xs font-medium tracking-wide text-fg-subtle uppercase">
         {label}
       </p>
       <p className="mt-2 font-display text-2xl font-bold">{value}</p>

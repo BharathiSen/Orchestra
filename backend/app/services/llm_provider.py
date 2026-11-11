@@ -1,7 +1,11 @@
 from app.core.config import settings
+from app.services.fake_llm_service import FAKE_MODEL_ID, FakeLLMService
 from app.services.gemini_service import SUPPORTED_MODELS as GEMINI_MODELS
 from app.services.gemini_service import GeminiService
+from app.services.model_aliases import GROQ_RETIRED_MODELS
 from app.services.openai_compatible_service import OpenAICompatibleService
+
+__all__ = ["GROQ_MODELS", "GROQ_RETIRED_MODELS"]
 
 GROQ_MODELS = [
     {
@@ -16,19 +20,11 @@ GROQ_MODELS = [
     },
     {
         "id": "qwen/qwen3.8-27b",
-        "label": "Qwen3.8 27B (Groq)",
-        "description": "Qwen on Groq",
+        "label": "Qwen3.8 27B (Groq, preview)",
+        # Groq lists this as a preview model, "for evaluation purposes only".
+        "description": "Preview model; about 10x the gpt-oss-20b price",
     },
 ]
-
-# Groq decommissions models; agents, conversations and env vars created before
-# then still name them. Resolve those to a live replacement at call time
-# instead of failing every request with a 404 "model_not_found".
-GROQ_RETIRED_MODELS = {
-    "llama-3.1-8b-instant": "openai/gpt-oss-20b",
-    "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
-    "gemma2-9b-it": "openai/gpt-oss-20b",
-}
 
 OLLAMA_MODELS = [
     {
@@ -55,6 +51,14 @@ def get_supported_models() -> list[dict]:
         return GROQ_MODELS
     if provider == "ollama":
         return OLLAMA_MODELS
+    if provider == "fake":
+        return [
+            {
+                "id": FAKE_MODEL_ID,
+                "label": "Deterministic test model",
+                "description": "LLM_PROVIDER=fake — end-to-end tests only",
+            }
+        ]
     return GEMINI_MODELS
 
 
@@ -62,8 +66,8 @@ def is_llm_configured() -> bool:
     provider = settings.active_llm_provider
     if provider == "groq":
         return settings.groq_configured
-    if provider == "ollama":
-        return True  # no cloud key; connectivity checked at request time
+    if provider in {"ollama", "fake"}:
+        return True  # no cloud key; Ollama connectivity is checked per request
     return settings.gemini_configured
 
 
@@ -74,12 +78,20 @@ def get_default_model() -> str:
         return GROQ_RETIRED_MODELS.get(model, model)
     if provider == "ollama":
         return settings.ollama_default_model
+    if provider == "fake":
+        return FAKE_MODEL_ID
     return settings.gemini_default_model
 
 
 def get_llm_service():
     """Return the active LLM client based on LLM_PROVIDER."""
     provider = settings.active_llm_provider
+    if provider == "fake":
+        # Second guard after startup validation: never answer real users with
+        # the test stub, even if startup checks were bypassed.
+        if settings.is_production:
+            raise RuntimeError("LLM_PROVIDER=fake is refused when ENVIRONMENT=production")
+        return FakeLLMService()
     if provider == "groq":
         return OpenAICompatibleService(
             base_url=settings.groq_base_url,

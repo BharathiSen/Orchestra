@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-import { getStoredUser } from "@/lib/auth";
+import { useSession } from "@/lib/auth";
 
 const DEMO_EMAIL = (process.env.NEXT_PUBLIC_DEMO_EMAIL || "").trim().toLowerCase();
 
@@ -18,21 +16,19 @@ const DEMO_EMAIL = (process.env.NEXT_PUBLIC_DEMO_EMAIL || "").trim().toLowerCase
  * the application shell that arrives in a later milestone.
  */
 export default function DemoBanner() {
-  const [isDemo, setIsDemo] = useState(false);
-
-  useEffect(() => {
-    if (!DEMO_EMAIL) return;
-    // Session state lives in localStorage, so this can only run after mount.
-    const user = getStoredUser();
-    setIsDemo(user?.email?.trim().toLowerCase() === DEMO_EMAIL);
-  }, []);
+  // Subscribed, so the banner appears on demo sign-in and disappears on
+  // log-out without a reload. (It used to be read once, when the root layout
+  // first mounted, so a client-side sign-in never showed it.)
+  const { user } = useSession();
+  const isDemo =
+    Boolean(DEMO_EMAIL) && user?.email?.trim().toLowerCase() === DEMO_EMAIL;
 
   if (!isDemo) return null;
 
   return (
     <div
       role="status"
-      className="border-b border-amber-300 bg-amber-100 px-4 py-2 text-center text-xs text-amber-900"
+      className="border-b border-amber-500/30 bg-amber-500/15 px-4 py-2 text-center text-xs text-amber-300"
     >
       <span className="font-semibold">Demo workspace</span> — shared with everyone
       trying Orchestra. Anything you create here is visible to others and may be

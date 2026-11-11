@@ -53,8 +53,10 @@ export const metadata: Metadata = {
     url: SITE_URL,
     locale: "en_US",
   },
+  // The image itself comes from app/opengraph-image.png and twitter-image.png
+  // (Next's file conventions), so the tags carry real dimensions.
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: TITLE,
     description: DESCRIPTION,
   },
@@ -65,7 +67,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0d9488",
+  themeColor: "#0b0f14",
   width: "device-width",
   initialScale: 1,
 };

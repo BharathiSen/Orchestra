@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
 import { ApiError, api, type Project } from "@/lib/api";
-import { clearSession, getToken } from "@/lib/auth";
+import { clearSession, useSession } from "@/lib/auth";
 
 type DialogMode = "edit" | "delete" | null;
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const [token, setToken] = useState<string | null>(null);
+  const { ready, token } = useSession();
   const [projects, setProjects] = useState<Project[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -32,19 +32,34 @@ export default function ProjectsPage() {
   }
 
   useEffect(() => {
-    const authToken = getToken();
-    if (!authToken) {
+    if (!ready) return;
+    if (!token) {
       router.replace("/login");
       return;
     }
-    setToken(authToken);
-    loadProjects(authToken)
-      .catch(() => {
-        clearSession();
-        router.replace("/login");
+    let cancelled = false;
+    api
+      .listProjects(token)
+      .then((data) => {
+        if (!cancelled) setProjects(data);
       })
-      .finally(() => setLoading(false));
-  }, [router]);
+      .catch((err) => {
+        if (cancelled) return;
+        // Sign out only on 401; see the dashboard for why.
+        if (err instanceof ApiError && err.status === 401) {
+          clearSession();
+          router.replace("/login");
+          return;
+        }
+        setError(err instanceof Error ? err.message : "Could not load projects.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, token, router]);
 
   async function onCreate(event: FormEvent) {
     event.preventDefault();
@@ -128,15 +143,15 @@ export default function ProjectsPage() {
         aria-busy="true"
       >
         <div className="mb-8 space-y-2">
-          <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
-          <div className="h-9 w-48 animate-pulse rounded-lg bg-slate-200" />
+          <div className="h-4 w-24 animate-pulse rounded bg-line" />
+          <div className="h-9 w-48 animate-pulse rounded-lg bg-line" />
         </div>
-        <div className="mb-8 h-40 animate-pulse rounded-2xl border border-slate-200 bg-white/60" />
+        <div className="mb-8 h-40 animate-pulse rounded-2xl border border-line bg-surface/60" />
         <div className="grid gap-3 sm:grid-cols-2">
           {[0, 1].map((i) => (
             <div
               key={i}
-              className="h-36 animate-pulse rounded-2xl border border-slate-200 bg-white/60"
+              className="h-36 animate-pulse rounded-2xl border border-line bg-surface/60"
             />
           ))}
         </div>
@@ -153,13 +168,13 @@ export default function ProjectsPage() {
             Orchestra
           </p>
           <h1 className="mt-1 font-display text-3xl font-bold">Projects</h1>
-          <p className="mt-1 text-slate-600">
+          <p className="mt-1 text-fg-muted">
             Workspaces that hold your agents.
           </p>
         </div>
         <Link
           href="/dashboard"
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+          className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
         >
           Back to dashboard
         </Link>
@@ -167,39 +182,39 @@ export default function ProjectsPage() {
 
       <form
         onSubmit={onCreate}
-        className="mb-8 rounded-2xl border border-slate-200 bg-white/80 p-6"
+        className="mb-8 rounded-2xl border border-line bg-surface/80 p-6"
       >
         <h2 className="font-display text-lg font-semibold">Create project</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <label className="block text-sm">
-            <span className="mb-1 block text-slate-600">Name</span>
+            <span className="mb-1 block text-fg-muted">Name</span>
             <input
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-accent focus:ring-2"
+              className="w-full rounded-lg border border-line-strong px-3 py-2 outline-none ring-accent focus:ring-2"
               placeholder="Customer support agents"
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block text-slate-600">Description</span>
+            <span className="mb-1 block text-fg-muted">Description</span>
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-accent focus:ring-2"
+              className="w-full rounded-lg border border-line-strong px-3 py-2 outline-none ring-accent focus:ring-2"
               placeholder="Optional"
             />
           </label>
         </div>
         {error && (
-          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
             {error}
           </p>
         )}
         <button
           type="submit"
           disabled={saving}
-          className="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+          className="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-ground hover:brightness-110 disabled:opacity-60"
         >
           {saving ? "Creating..." : "Create project"}
         </button>
@@ -207,11 +222,11 @@ export default function ProjectsPage() {
 
       <section className="grid gap-3 sm:grid-cols-2">
         {projects.length === 0 ? (
-          <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white/50 px-6 py-12 text-center">
-            <p className="font-display text-lg font-semibold text-slate-800">
+          <div className="col-span-full rounded-2xl border border-dashed border-line-strong bg-surface/50 px-6 py-12 text-center">
+            <p className="font-display text-lg font-semibold text-fg">
               No projects yet
             </p>
-            <p className="mx-auto mt-2 max-w-md text-sm text-slate-600">
+            <p className="mx-auto mt-2 max-w-md text-sm text-fg-muted">
               A project is a workspace holding agents, knowledge bases, and every
               execution trace they produce. Create one above to get started.
             </p>
@@ -220,13 +235,13 @@ export default function ProjectsPage() {
           projects.map((project) => (
             <article
               key={project.id}
-              className="rounded-2xl border border-slate-200 bg-white/80 p-5"
+              className="rounded-2xl border border-line bg-surface/80 p-5"
             >
               <Link href={`/projects/${project.id}`} className="block">
-                <h3 className="font-display text-lg font-semibold text-ink hover:text-accent">
+                <h3 className="font-display text-lg font-semibold text-fg hover:text-accent">
                   {project.name}
                 </h3>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-fg-muted">
                   {project.description || "No description"}
                 </p>
               </Link>
@@ -237,13 +252,13 @@ export default function ProjectsPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => openEdit(project)}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+                    className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => confirmDelete(project)}
-                    className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                    className="rounded-lg border border-red-500/30 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/10"
                   >
                     Delete
                   </button>
@@ -259,20 +274,20 @@ export default function ProjectsPage() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="delete-project-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
         >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
+          <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-lg">
             <h2 id="delete-project-title" className="font-display text-xl font-semibold">
               Delete “{deletingProject.name}”?
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
+            <p className="mt-2 text-sm text-fg-muted">
               This permanently removes the project along with its agents,
               conversations, knowledge bases, uploaded documents, and every
               execution trace. It cannot be undone.
             </p>
 
             {error && (
-              <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
                 {error}
               </p>
             )}
@@ -282,7 +297,7 @@ export default function ProjectsPage() {
                 type="button"
                 onClick={closeDialog}
                 disabled={deleteBusy}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -300,35 +315,35 @@ export default function ProjectsPage() {
       )}
 
       {dialog === "edit" && editingProject && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <form
             onSubmit={onUpdateProject}
-            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-lg"
+            className="w-full max-w-lg rounded-2xl border border-line bg-surface p-6 shadow-lg"
           >
             <h2 className="font-display text-xl font-semibold">Edit Project</h2>
-            <p className="mt-1 text-sm text-slate-600">Update the project name and description.</p>
+            <p className="mt-1 text-sm text-fg-muted">Update the project name and description.</p>
 
             <label className="mt-4 block text-sm">
-              <span className="mb-1 block text-slate-600">Name</span>
+              <span className="mb-1 block text-fg-muted">Name</span>
               <input
                 required
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-accent focus:ring-2"
+                className="w-full rounded-lg border border-line-strong px-3 py-2 outline-none ring-accent focus:ring-2"
               />
             </label>
 
             <label className="mt-3 block text-sm">
-              <span className="mb-1 block text-slate-600">Description</span>
+              <span className="mb-1 block text-fg-muted">Description</span>
               <input
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-accent focus:ring-2"
+                className="w-full rounded-lg border border-line-strong px-3 py-2 outline-none ring-accent focus:ring-2"
               />
             </label>
 
             {error && (
-              <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
                 {error}
               </p>
             )}
@@ -337,14 +352,14 @@ export default function ProjectsPage() {
               <button
                 type="button"
                 onClick={closeDialog}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50"
+                className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={updatingProject}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-ground hover:brightness-110 disabled:opacity-60"
               >
                 {updatingProject ? "Saving..." : "Save"}
               </button>

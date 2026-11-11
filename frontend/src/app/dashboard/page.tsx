@@ -4,29 +4,32 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { api, type Agent, type Project, type User } from "@/lib/api";
-import { clearSession, getStoredUser, getToken } from "@/lib/auth";
+import { ApiError, api, type Agent, type Project, type User } from "@/lib/api";
+import { clearSession, useSession } from "@/lib/auth";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
+  const { ready, token, user: storedUser } = useSession();
+  // The stored user renders immediately; the fresh one replaces it once loaded.
+  const [freshUser, setFreshUser] = useState<User | null>(null);
+  const user = freshUser ?? storedUser;
   const [projects, setProjects] = useState<Project[]>([]);
   const [agentCounts, setAgentCounts] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = getToken();
+    if (!ready) return;
     if (!token) {
       router.replace("/login");
       return;
     }
 
-    const cached = getStoredUser();
-    if (cached) setUser(cached);
-
+    let cancelled = false;
     Promise.all([api.me(token), api.listProjects(token), api.listAgents(token)])
       .then(([me, projectList, agents]) => {
-        setUser(me);
+        if (cancelled) return;
+        setFreshUser(me);
         setProjects(projectList);
         const counts: Record<number, number> = {};
         for (const agent of agents as Agent[]) {
@@ -34,12 +37,25 @@ export default function DashboardPage() {
         }
         setAgentCounts(counts);
       })
-      .catch(() => {
-        clearSession();
-        router.replace("/login");
+      .catch((err) => {
+        if (cancelled) return;
+        // Only an expired or invalid token means "signed out". A network blip,
+        // a 5xx, or a request aborted by navigating away must not wipe the
+        // session — that used to log people out for clicking quickly.
+        if (err instanceof ApiError && err.status === 401) {
+          clearSession();
+          router.replace("/login");
+          return;
+        }
+        setError(err instanceof Error ? err.message : "Could not load the workspace.");
       })
-      .finally(() => setLoading(false));
-  }, [router]);
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, token, router]);
 
   function logout() {
     clearSession();
@@ -54,15 +70,15 @@ export default function DashboardPage() {
         aria-busy="true"
       >
         <div className="mb-10 space-y-2">
-          <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
-          <div className="h-9 w-56 animate-pulse rounded-lg bg-slate-200" />
-          <div className="h-4 w-72 animate-pulse rounded bg-slate-200" />
+          <div className="h-4 w-24 animate-pulse rounded bg-line" />
+          <div className="h-9 w-56 animate-pulse rounded-lg bg-line" />
+          <div className="h-4 w-72 animate-pulse rounded bg-line" />
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
-              className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white/60"
+              className="h-32 animate-pulse rounded-2xl border border-line bg-surface/60"
             />
           ))}
         </div>
@@ -79,44 +95,56 @@ export default function DashboardPage() {
             Orchestra
           </p>
           <h1 className="mt-1 font-display text-3xl font-bold">Dashboard</h1>
-          <p className="mt-1 text-slate-600">
+          <p className="mt-1 text-fg-muted">
             Welcome{user?.full_name ? `, ${user.full_name}` : ""} — projects and
             agents.
           </p>
         </div>
         <div className="flex gap-2">
           <Link
+            href="/evals"
+            className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
+          >
+            Evaluations
+          </Link>
+          <Link
             href="/projects"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+            className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
           >
             Manage projects
           </Link>
           <button
             onClick={logout}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+            className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
           >
             Log out
           </button>
         </div>
       </header>
 
+      {error && (
+        <p role="alert" className="mb-6 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          {error}
+        </p>
+      )}
+
       <section className="mb-6 flex items-end justify-between gap-4">
         <div>
           <h2 className="font-display text-xl font-semibold">Your projects</h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-fg-muted">
             Open a project to create and manage agents.
           </p>
         </div>
         <Link
           href="/projects"
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-ground hover:brightness-110"
         >
           New project
         </Link>
       </section>
 
       {projects.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-10 text-center text-slate-500">
+        <p className="rounded-2xl border border-dashed border-line-strong bg-surface/50 px-4 py-10 text-center text-fg-subtle">
           No projects yet.{" "}
           <Link href="/projects" className="text-accent underline">
             Create your first project
@@ -129,13 +157,13 @@ export default function DashboardPage() {
             <Link
               key={project.id}
               href={`/projects/${project.id}`}
-              className="rounded-2xl border border-slate-200 bg-white/80 p-6 transition hover:border-accent hover:shadow-sm"
+              className="rounded-2xl border border-line bg-surface/80 p-6 transition hover:border-accent hover:shadow-sm"
             >
               <h3 className="font-display text-lg font-semibold">{project.name}</h3>
-              <p className="mt-2 line-clamp-2 text-sm text-slate-600">
+              <p className="mt-2 line-clamp-2 text-sm text-fg-muted">
                 {project.description || "No description"}
               </p>
-              <p className="mt-4 text-xs font-medium text-slate-500">
+              <p className="mt-4 text-xs font-medium text-fg-subtle">
                 {agentCounts[project.id] || 0} agent
                 {(agentCounts[project.id] || 0) === 1 ? "" : "s"}
               </p>
@@ -144,15 +172,15 @@ export default function DashboardPage() {
         </section>
       )}
 
-      <article className="mt-8 rounded-2xl border border-slate-200 bg-white/80 p-6">
+      <article className="mt-8 rounded-2xl border border-line bg-surface/80 p-6">
         <h2 className="font-display text-lg font-semibold">Account</h2>
         <dl className="mt-3 space-y-2 text-sm">
           <div className="flex justify-between gap-4">
-            <dt className="text-slate-500">Email</dt>
+            <dt className="text-fg-subtle">Email</dt>
             <dd className="font-medium">{user?.email}</dd>
           </div>
           <div className="flex justify-between gap-4">
-            <dt className="text-slate-500">User ID</dt>
+            <dt className="text-fg-subtle">User ID</dt>
             <dd className="font-medium">{user?.id}</dd>
           </div>
         </dl>

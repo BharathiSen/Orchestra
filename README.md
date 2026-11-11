@@ -77,7 +77,8 @@ password: orchestra-demo
 | ⏪ | **Replay** | Re-run a stored prompt with its original pipeline flags to compare behaviour |
 | 🚦 | **Three-axis rate limiting** | Requests per minute, concurrent streams, and a daily token budget — because none of the three bounds the others |
 | 📡 | **SSE streaming** | Real provider token streaming on the direct and both Orchestra routes, with live agent-step events, rendered as Markdown with tables and syntax-highlighted code *(the tools path buffers — see [roadmap](#-future-roadmap))* |
-| 🧪 | **Tested behaviour** | 105 backend integration tests covering auth, ownership isolation, the SSE contract, all three pipelines, every rate limit, and the pgvector query — run in CI against real Postgres and Redis |
+| 📏 | **LLM-judge evaluation** | A fixed 12-question golden set run through the real pipeline and graded 1-5 by a stronger judge model on correctness, completeness, relevance, and clarity. Every run is tagged with a hash of the prompts, so the Evaluations page charts quality across prompt versions |
+| 🧪 | **Tested behaviour** | 141 backend tests covering auth, ownership isolation, the SSE contract, all three pipelines, every rate limit, the pgvector query, and the eval machinery, plus 6 Playwright browser tests — run in CI against real Postgres and Redis |
 
 ---
 
@@ -198,8 +199,9 @@ the person across projects.
 **Frontend**
 - Next.js 16 (App Router, Turbopack builds)
 - React 19 · TypeScript 5.7
-- Tailwind CSS 3.4
+- Tailwind CSS 3.4 with semantic dark-theme tokens
 - react-markdown 9 + remark-gfm
+- Playwright end-to-end tests
 
 </td><td valign="top">
 
@@ -240,14 +242,17 @@ Orchestra/
 │   ├── rag/             retrieval and grounded prompt construction
 │   ├── memory/          Redis buffer + long-term fact extraction
 │   ├── observability/   ExecutionLogger · TraceBuilder · TrackingLLM
-│   ├── evaluation/      cost model, metrics, execution tracker, scorers
+│   ├── evaluation/      cost model, tracker, heuristic scorer, golden set, LLM judge, eval runner
 │   ├── core/            config · database · redis · limiter · middleware
 │   ├── repositories/    data access
 │   ├── models/          SQLAlchemy ORM
 │   ├── schemas/         Pydantic contracts
 │   └── services/        ChatService, pluggable LLM providers
-├── backend/scripts/     seed_demo.py
-├── frontend/src/app/    landing · login · dashboard · projects · chat · KB · observability
+├── backend/scripts/     seed_demo.py · run_eval.py · benchmark_latency.py
+├── backend/evals/runs/  recorded evaluation runs (JSON), the evidence behind the chart
+├── frontend/src/app/    landing · login · dashboard · projects · chat · KB · observability · evals
+├── frontend/src/components/chat/   chat UI split into focused components
+├── frontend/e2e/        Playwright end-to-end tests
 ├── database/            init.sql (extensions)
 ├── docker/              docker-compose.yml · docker-compose.prod.yml
 └── docs/                architecture diagram
@@ -460,7 +465,7 @@ Browser ──HTTPS──► Next.js frontend ──REST + SSE──► FastAPI 
 
 | Piece | Host used | Notes |
 |---|---|---|
-| Frontend | Cloudflare Workers (OpenNext) | `npm run deploy` — manual, not on push. Set `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_SITE_URL` in the shell, because a local `.env.local` overrides `.env.production` |
+| Frontend | Cloudflare Workers (OpenNext) | Deployed by `.github/workflows/deploy-frontend.yml` after CI passes on `main`, which then verifies the live site. Needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repository secrets; without them it skips. Manual fallback: `npm run deploy` with `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_SITE_URL` set in the shell, because a local `.env.local` overrides `.env.production` |
 | Backend | Render | Auto-deploys from `main` |
 | Postgres + pgvector | Neon | Enable the `vector` extension |
 | Redis | Upstash | The TLS `rediss://` URL works directly |
@@ -600,8 +605,8 @@ asserts every alias points at a model that is actually listed.
 | **Ownership** | Every project-scoped resource is reachable only by its owner; unauthorized access returns 404, not 403 |
 | **Health probes** | Split liveness and readiness, with 503 on dependency failure |
 | **Containers** | Multi-stage builds, non-root user, `HEALTHCHECK`, secrets excluded from build context |
-| **Testing** | 105 backend integration tests against real Postgres + Redis service containers, with a stubbed LLM so no test makes a network call. Ownership, rate limits, the SSE event contract, all three pipelines, the retrieval trust boundary, and the pgvector query |
-| **CI** | Ruff, `compileall`, pytest (incl. pgvector, and a guard that fails if those tests are skipped), a startup-validation assertion, ESLint, `tsc`, `next build`, and both Docker image builds |
+| **Testing** | 141 backend tests against real Postgres + Redis service containers, with a stubbed LLM so no test makes a network call: ownership, rate limits, the SSE event contract, all three pipelines, the retrieval trust boundary, the pgvector query, and the evaluation machinery. Plus 6 Playwright browser tests of the real frontend against the real backend |
+| **CI** | Ruff, `compileall`, pytest (incl. pgvector, and a guard that fails if those tests are skipped), a startup-validation assertion, ESLint (React hooks rules as errors), `tsc`, `next build`, Playwright end-to-end, and both Docker image builds. A green run on `main` deploys the frontend |
 | **Graceful degradation** | Redis down degrades memory; retrieval failure yields an ungrounded answer; neither returns a 500 |
 | **Honest run status** | `completed`, `degraded` (an agent failed but a fallback still answered), or `error`. Only `completed` counts toward the success rate, so a fallback cannot hide a failing provider |
 | **Provider drift** | Retired model IDs are resolved to a live model at the client; gpt-oss models run with low reasoning effort to keep each pipeline stage fast |
@@ -610,33 +615,28 @@ asserts every alias points at a model that is actually listed.
 
 ## ⚡ Performance
 
-Measured against the deployed instance (Groq `llama-3.1-8b-instant`, Neon,
-Upstash). Numbers are indicative, not a benchmark.
+Chat figures: measured 2026-11-11 on `openai/gpt-oss-20b` via Groq, local
+backend (so Render/Neon round-trips are excluded). Page and health figures: the
+live deployment. Indicative, not a benchmark.
 
-> Groq has since retired `llama-3.1-8b-instant`; the default is now
-> `openai/gpt-oss-20b`, and stored agents that still name a retired model are
-> routed to its replacement. These figures predate that switch and have not
-> been re-measured. A local full-route run on gpt-oss-20b took ~6.5 s and ~4.6k
-> tokens.
+> This section used to quote Groq's `llama-3.1-8b-instant`, which Groq retired.
+> gpt-oss-20b is slower: Groq alone takes ~1.4 s to first token (it was ~0.25 s),
+> and every sequential LLM call in a pipeline pays that again.
 
-| Path | Latency | Tokens | Cost/turn |
+| Chat path | Time to first token | Total | Sequential LLM calls |
 |---|---|---|---|
-| Direct chat | 0.4 – 0.9 s | ~45 | ~$0.000003 |
-| Orchestra — simple route | ~1.6 s | ~500 | ~$0.00003 |
-| Orchestra — full route | 3.0 – 4.9 s | 3.2k – 5.2k | ~$0.0002 |
-| RAG retrieval (warm) | ~2.3 s | ~270 | ~$0.00001 |
-| `/health/ready` | ~120 ms | — | — |
-| Frontend TTFB | ~390 ms | — | — |
+| Direct chat | 1.5 – 1.9 s | ~2 s | 1 |
+| Orchestra — simple route | ~4.7 s | ~5 s | 3 (planner 1.4 s, research 1.7 s, answer 1.5 s) |
+| Orchestra — full route | 8 – 26 s | 9 – 27 s | 4 (the 26 s run included a ~7 s rate-limit retry) |
 
-**Time to first token**, measured separately against Groq on a local Docker stack
-(so these are not comparable to the hosted latencies above, which include Render
-and Neon round-trips):
+| Live site | Warm latency |
+|---|---|
+| Pages (Cloudflare, reused connection) | 100 – 260 ms |
+| Backend `/health/ready` (Render) | ~90 – 130 ms |
+| Backend cold start (free tier asleep) | 73 s observed |
 
-| Path | TTFT | Total | Streamed chunks |
-|---|---|---|---|
-| Direct chat | 0.21 – 0.26 s | ~0.30 s | 14 |
-| Orchestra — simple route | ~1.8 s | ~1.9 s | 28 |
-| Orchestra — full route | ~5.2 s | ~6.2 s | 706 |
+On Groq's free tier two full-route messages in a minute can exhaust the token
+quota; the Reviewer then fails with a 429 and the run is recorded as `degraded`.
 
 The chunk counts are the point: 706 provider-sized deltas on a full run, averaging
 about nine characters each, is genuine token streaming. It previously emitted one
@@ -732,11 +732,12 @@ without an answer-quality comparison.
 
 Ordered by impact. These are known gaps, stated plainly.
 
-- [ ] **Answer-quality evaluation.** A fixed latency harness
-      (`scripts/benchmark_latency.py`) now replays labelled pipeline cases and
-      records p50/p95, TTFT, tokens, and errors against FakeLLM. Scores in the
-      product are still lexical heuristics. Rubric-scored judging of live answers
-      is not implemented. The test suite covers the machinery, not answer quality.
+- [x] **Answer-quality evaluation.** `scripts/run_eval.py` runs a fixed golden
+      set through the live pipeline and grades it with an LLM judge; results are
+      charted per prompt version on the Evaluations page (see
+      [Evaluation](#-evaluation)). Still open: the golden set is small (12
+      questions), judged by one model, and run by hand rather than on every
+      prompt change.
 - [ ] **Genuine token streaming on the tools path.** Direct and both Orchestra
       routes now stream from the provider. The tools path still computes a
       complete answer and emits it in slices, because its answer node inspects
@@ -757,7 +758,10 @@ Ordered by impact. These are known gaps, stated plainly.
       architecture only; it is labelled accordingly rather than presented as web search.
 - [ ] **Sliding-window rate limiting.** The fixed window lets a sequential burst
       straddle a boundary; concurrency is what currently bounds it.
-- [ ] **Structured logging with request IDs**, and prompt versioning with A/B runs.
+- [ ] **Structured logging with request IDs.**
+- [ ] **Run the eval in CI on prompt changes.** The machinery is tested; running
+      the live golden set when `app/prompts/` changes would catch regressions
+      before merge, at a cost of a few cents per run.
 
 ---
 
@@ -823,7 +827,13 @@ Issues and pull requests are welcome.
 ```bash
 cd backend  && pytest tests/          # deterministic LLM stub — no API keys needed
 cd frontend && npm run lint && npm run typecheck && npm run build
+cd frontend && npm run test:e2e       # Playwright; needs Postgres + Redis, see playwright.config.ts
 ```
+
+The end-to-end suite starts its own backend with `LLM_PROVIDER=fake` (a
+deterministic model, refused in production) and a production build of the
+frontend, then drives them in Chromium. Point `E2E_DATABASE_URL` and
+`E2E_REDIS_URL` at a pgvector Postgres and a Redis.
 
 The backend suite runs against SQLite by default, so it needs no services. Point
 it at a pgvector database to additionally run the vector-similarity tests, which

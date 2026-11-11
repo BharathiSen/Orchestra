@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { getToken } from "@/lib/auth";
+import { useSession } from "@/lib/auth";
 import { warmBackend } from "@/lib/warm";
 
 /* Real figures from a full-route run on the deployed instance. They are kept
@@ -172,25 +172,29 @@ function TraceCard() {
 }
 
 /** Replays the real SSE contract once, when it scrolls into view. */
+const noopSubscribe = () => () => {};
+
 function EventStream() {
   const ref = useRef<HTMLDivElement>(null);
-  const [live, setLive] = useState(false);
+  const [seen, setSeen] = useState(false);
+  // No IntersectionObserver (or an old browser) should not mean no content —
+  // show the finished state rather than an empty box. Assumed present on the
+  // server so the prerendered HTML matches modern browsers.
+  const canObserve = useSyncExternalStore(
+    noopSubscribe,
+    () => typeof IntersectionObserver !== "undefined",
+    () => true,
+  );
+  const live = seen || !canObserve;
 
   useEffect(() => {
     const node = ref.current;
     if (!node || live) return;
 
-    // No IntersectionObserver (or an old browser) should not mean no content —
-    // fall back to showing the finished state rather than an empty box.
-    if (typeof IntersectionObserver === "undefined") {
-      setLive(true);
-      return;
-    }
-
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          setLive(true);
+          setSeen(true);
           observer.disconnect();
         }
       },
@@ -244,13 +248,11 @@ const DEMO_ENABLED = Boolean(
 );
 
 export default function LandingPage() {
-  const [ctaHref, setCtaHref] = useState("/login");
-  const [signedIn, setSignedIn] = useState(false);
+  const { token } = useSession();
+  const signedIn = Boolean(token);
+  const ctaHref = signedIn ? "/dashboard" : "/login";
 
   useEffect(() => {
-    const authed = Boolean(getToken());
-    setSignedIn(authed);
-    setCtaHref(authed ? "/dashboard" : "/login");
     warmBackend();
   }, []);
 
@@ -318,7 +320,7 @@ export default function LandingPage() {
                   <b>3</b> pipelines
                 </span>
                 <span>
-                  <b>105</b> tests
+                  <b>141</b> tests
                 </span>
                 <span>
                   <b>MIT</b> licensed

@@ -10,7 +10,7 @@ import {
   type ExecutionDetail,
   type ReplayPayload,
 } from "@/lib/api";
-import { clearSession, getToken } from "@/lib/auth";
+import { clearSession, useSession } from "@/lib/auth";
 
 function formatMs(ms: number) {
   if (ms >= 1000) return `${(ms / 1000).toFixed(2)} sec`;
@@ -28,20 +28,20 @@ export default function ExecutionDetailPage() {
   const projectId = Number(params.id);
   const executionId = Number(params.executionId);
 
-  const [token, setToken] = useState<string | null>(null);
+  const { ready, token } = useSession();
   const [execution, setExecution] = useState<ExecutionDetail | null>(null);
   const [replay, setReplay] = useState<ReplayPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ratingBusy, setRatingBusy] = useState(false);
 
-  const load = useCallback(
+  const fetchExecution = useCallback(
     async (authToken: string) => {
       const data = await api.getExecution(authToken, executionId);
       if (data.project_id !== projectId) {
         throw new Error("Execution does not belong to this project");
       }
-      setExecution(data);
+      return data;
     },
     [executionId, projectId],
   );
@@ -51,14 +51,18 @@ export default function ExecutionDetailPage() {
       router.replace("/projects");
       return;
     }
-    const authToken = getToken();
-    if (!authToken) {
+    if (!ready) return;
+    if (!token) {
       router.replace("/login");
       return;
     }
-    setToken(authToken);
-    load(authToken)
+    let cancelled = false;
+    fetchExecution(token)
+      .then((data) => {
+        if (!cancelled) setExecution(data);
+      })
       .catch((err) => {
+        if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
           clearSession();
           router.replace("/login");
@@ -66,8 +70,13 @@ export default function ExecutionDetailPage() {
         }
         setError(err instanceof Error ? err.message : "Failed to load");
       })
-      .finally(() => setLoading(false));
-  }, [executionId, load, projectId, router]);
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, token, executionId, fetchExecution, projectId, router]);
 
   async function onRate(rating: number) {
     if (!token || !execution) return;
@@ -107,7 +116,7 @@ export default function ExecutionDetailPage() {
   if (loading) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-5xl items-center justify-center px-6">
-        <p className="text-slate-500">Loading execution…</p>
+        <p className="text-fg-subtle">Loading execution…</p>
       </main>
     );
   }
@@ -115,7 +124,7 @@ export default function ExecutionDetailPage() {
   if (!execution) {
     return (
       <main className="mx-auto min-h-dvh max-w-5xl px-6 py-10">
-        <p className="text-red-600">{error || "Execution not found"}</p>
+        <p className="text-red-300">{error || "Execution not found"}</p>
         <Link
           href={`/projects/${projectId}/observability`}
           className="mt-4 inline-block text-accent underline"
@@ -158,7 +167,7 @@ export default function ExecutionDetailPage() {
           <h1 className="mt-1 font-display text-3xl font-bold">
             Execution #{execution.id}
           </h1>
-          <p className="mt-1 text-slate-600">
+          <p className="mt-1 text-fg-muted">
             {execution.pipeline} · {execution.model_name} · {execution.status}
           </p>
         </div>
@@ -166,13 +175,13 @@ export default function ExecutionDetailPage() {
           <button
             type="button"
             onClick={onReplay}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-ground hover:brightness-110"
           >
             Replay
           </button>
           <Link
             href={`/projects/${projectId}/observability`}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-white"
+            className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
           >
             All executions
           </Link>
@@ -180,7 +189,7 @@ export default function ExecutionDetailPage() {
       </header>
 
       {error && (
-        <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p className="mb-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
           {error}
         </p>
       )}
@@ -196,37 +205,37 @@ export default function ExecutionDetailPage() {
       </section>
 
       {latency && (
-        <section className="mb-6 rounded-2xl border border-slate-200 bg-white/80 p-5">
+        <section className="mb-6 rounded-2xl border border-line bg-surface/80 p-5">
           <h2 className="font-display text-lg font-semibold">Request timeline</h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-fg-muted">
             Monotonic marks from when this turn was received.
             {latency.provider ? ` Provider ${latency.provider}` : ""}
             {latency.model ? ` · ${latency.model}` : ""}.
           </p>
           <dl className="mt-3 grid gap-2 sm:grid-cols-2 text-sm">
-            <div className="flex justify-between gap-4 rounded-lg bg-slate-50 px-3 py-2">
-              <dt className="text-slate-500">Time to first provider token</dt>
+            <div className="flex justify-between gap-4 rounded-lg bg-raised px-3 py-2">
+              <dt className="text-fg-subtle">Time to first provider token</dt>
               <dd className="font-medium">
                 {latency.ttft_provider_ms == null ? "—" : formatMs(latency.ttft_provider_ms)}
               </dd>
             </div>
-            <div className="flex justify-between gap-4 rounded-lg bg-slate-50 px-3 py-2">
-              <dt className="text-slate-500">Time to first token delivered</dt>
+            <div className="flex justify-between gap-4 rounded-lg bg-raised px-3 py-2">
+              <dt className="text-fg-subtle">Time to first token delivered</dt>
               <dd className="font-medium">
                 {latency.ttft_delivered_ms == null ? "—" : formatMs(latency.ttft_delivered_ms)}
               </dd>
             </div>
             {latency.slowest_stage?.stage && (
-              <div className="flex justify-between gap-4 rounded-lg bg-slate-50 px-3 py-2">
-                <dt className="text-slate-500">Slowest measured stage</dt>
+              <div className="flex justify-between gap-4 rounded-lg bg-raised px-3 py-2">
+                <dt className="text-fg-subtle">Slowest measured stage</dt>
                 <dd className="font-medium">
                   {latency.slowest_stage.stage.replace(/_/g, " ")} ·{" "}
                   {formatMs(latency.slowest_stage.duration_ms || 0)}
                 </dd>
               </div>
             )}
-            <div className="flex justify-between gap-4 rounded-lg bg-slate-50 px-3 py-2">
-              <dt className="text-slate-500">Retries / timeouts</dt>
+            <div className="flex justify-between gap-4 rounded-lg bg-raised px-3 py-2">
+              <dt className="text-fg-subtle">Retries / timeouts</dt>
               <dd className="font-medium">
                 {latency.retries || 0} / {latency.timeouts || 0}
                 {latency.errors && latency.errors.length > 0
@@ -240,8 +249,8 @@ export default function ExecutionDetailPage() {
               {Object.entries(latency.durations_ms)
                 .sort((a, b) => b[1] - a[1])
                 .map(([stage, ms]) => (
-                  <li key={stage} className="flex justify-between rounded-lg bg-slate-50 px-3 py-1.5">
-                    <span className="capitalize text-slate-600">{stage.replace(/_/g, " ")}</span>
+                  <li key={stage} className="flex justify-between rounded-lg bg-raised px-3 py-1.5">
+                    <span className="capitalize text-fg-muted">{stage.replace(/_/g, " ")}</span>
                     <span className="font-medium">{formatMs(ms)}</span>
                   </li>
                 ))}
@@ -250,30 +259,30 @@ export default function ExecutionDetailPage() {
         </section>
       )}
 
-      <section className="mb-6 rounded-2xl border border-slate-200 bg-white/80 p-5">
+      <section className="mb-6 rounded-2xl border border-line bg-surface/80 p-5">
         <h2 className="font-display text-lg font-semibold">Pipeline steps</h2>
         {slowestStep && execution.steps.length > 1 && (
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-fg-muted">
             Slowest step: {slowestStep.step_name.replace(/_/g, " ")} · {formatMs(slowestStep.latency_ms)}
           </p>
         )}
         {execution.steps.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No step records.</p>
+          <p className="mt-3 text-sm text-fg-subtle">No step records.</p>
         ) : (
           <ol className="mt-4 space-y-2">
             {execution.steps.map((step) => (
               <li
                 key={step.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-raised px-3 py-2 text-sm"
               >
                 <div className="flex items-center gap-2">
                   <span
                     className={
                       step.status === "done"
-                        ? "text-teal-700"
+                        ? "text-accent"
                         : step.status === "error"
-                          ? "text-red-600"
-                          : "text-slate-500"
+                          ? "text-red-300"
+                          : "text-fg-subtle"
                     }
                   >
                     {step.status === "done" ? "✓" : step.status === "error" ? "✗" : "…"}
@@ -282,12 +291,12 @@ export default function ExecutionDetailPage() {
                     {step.step_name.replace(/_/g, " ")}
                   </span>
                   {slowestStep?.id === step.id && execution.steps.length > 1 && (
-                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
                       Slowest
                     </span>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-3 text-xs text-slate-600">
+                <div className="flex flex-wrap gap-3 text-xs text-fg-muted">
                   <span>{formatMs(step.latency_ms)}</span>
                   <span>{step.tokens} tokens</span>
                   <span>{formatUsd(step.cost_usd)}</span>
@@ -299,15 +308,15 @@ export default function ExecutionDetailPage() {
       </section>
 
       {execution.scores && (
-        <section className="mb-6 rounded-2xl border border-slate-200 bg-white/80 p-5">
+        <section className="mb-6 rounded-2xl border border-line bg-surface/80 p-5">
           <h2 className="font-display text-lg font-semibold">Heuristic scores</h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-fg-muted">
             Lightweight metrics — not LLM-as-a-judge.
           </p>
           <dl className="mt-3 grid gap-2 sm:grid-cols-2 text-sm">
             {Object.entries(execution.scores).map(([k, v]) => (
-              <div key={k} className="flex justify-between gap-4 rounded-lg bg-slate-50 px-3 py-2">
-                <dt className="text-slate-500 capitalize">{k.replace(/_/g, " ")}</dt>
+              <div key={k} className="flex justify-between gap-4 rounded-lg bg-raised px-3 py-2">
+                <dt className="text-fg-subtle capitalize">{k.replace(/_/g, " ")}</dt>
                 <dd className="font-medium">{String(v)}</dd>
               </div>
             ))}
@@ -315,22 +324,22 @@ export default function ExecutionDetailPage() {
         </section>
       )}
 
-      <section className="mb-6 rounded-2xl border border-slate-200 bg-white/80 p-5">
+      <section className="mb-6 rounded-2xl border border-line bg-surface/80 p-5">
         <h2 className="font-display text-lg font-semibold">Prompt</h2>
-        <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm">
+        <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-raised p-3 text-sm">
           {execution.prompt}
         </pre>
       </section>
 
-      <section className="mb-6 rounded-2xl border border-slate-200 bg-white/80 p-5">
+      <section className="mb-6 rounded-2xl border border-line bg-surface/80 p-5">
         <h2 className="font-display text-lg font-semibold">Final response</h2>
-        <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm">
+        <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-raised p-3 text-sm">
           {execution.final_response || execution.error_detail || "(none)"}
         </pre>
       </section>
 
       {retrieved.length > 0 && (
-        <section className="mb-6 rounded-2xl border border-slate-200 bg-white/80 p-5">
+        <section className="mb-6 rounded-2xl border border-line bg-surface/80 p-5">
           <h2 className="font-display text-lg font-semibold">
             Retrieved context ({retrieved.length})
           </h2>
@@ -338,12 +347,12 @@ export default function ExecutionDetailPage() {
             {retrieved.slice(0, 8).map((chunk, idx) => {
               const c = chunk as { document_name?: string; content?: string; score?: number };
               return (
-                <li key={idx} className="rounded-lg bg-slate-50 p-3">
-                  <p className="text-xs font-medium text-slate-500">
+                <li key={idx} className="rounded-lg bg-raised p-3">
+                  <p className="text-xs font-medium text-fg-subtle">
                     {c.document_name || "chunk"}{" "}
                     {c.score != null ? `· score ${Number(c.score).toFixed(3)}` : ""}
                   </p>
-                  <p className="mt-1 line-clamp-4 text-slate-700">{c.content}</p>
+                  <p className="mt-1 line-clamp-4 text-fg">{c.content}</p>
                 </li>
               );
             })}
@@ -352,15 +361,15 @@ export default function ExecutionDetailPage() {
       )}
 
       {tools.length > 0 && (
-        <section className="mb-6 rounded-2xl border border-slate-200 bg-white/80 p-5">
+        <section className="mb-6 rounded-2xl border border-line bg-surface/80 p-5">
           <h2 className="font-display text-lg font-semibold">Tool calls</h2>
-          <pre className="mt-3 overflow-x-auto rounded-lg bg-slate-50 p-3 text-xs">
+          <pre className="mt-3 overflow-x-auto rounded-lg bg-raised p-3 text-xs">
             {JSON.stringify(tools, null, 2)}
           </pre>
         </section>
       )}
 
-      <section className="mb-6 rounded-2xl border border-slate-200 bg-white/80 p-5">
+      <section className="mb-6 rounded-2xl border border-line bg-surface/80 p-5">
         <h2 className="font-display text-lg font-semibold">Your rating</h2>
         <div className="mt-3 flex gap-2">
           {[1, 2, 3, 4, 5].map((n) => (
@@ -372,7 +381,7 @@ export default function ExecutionDetailPage() {
               className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
                 execution.user_rating === n
                   ? "border-accent bg-accent/10 text-accent"
-                  : "border-slate-300 hover:bg-white"
+                  : "border-line-strong hover:bg-raised"
               }`}
             >
               {n}
@@ -382,7 +391,7 @@ export default function ExecutionDetailPage() {
       </section>
 
       {replay && (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-fg-subtle">
           Replay payload ready for execution #{replay.execution_id}.
         </p>
       )}
@@ -392,8 +401,8 @@ export default function ExecutionDetailPage() {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
-      <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">
+    <div className="rounded-2xl border border-line bg-surface/80 px-4 py-3">
+      <p className="text-xs font-medium tracking-wide text-fg-subtle uppercase">
         {label}
       </p>
       <p className="mt-1 text-sm font-semibold">{value}</p>

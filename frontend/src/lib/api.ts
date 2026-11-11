@@ -284,6 +284,51 @@ export type ExecutionSummary = {
   scores: Record<string, unknown> | null;
 };
 
+export type EvalRunSummary = {
+  id: number;
+  uid: string;
+  label: string;
+  prompt_version: string;
+  judge_version: string;
+  golden_set_version: string;
+  model: string;
+  judge_model: string;
+  created_at: string;
+  question_count: number;
+  judged_count: number;
+  error_count: number;
+  avg_correctness: number | null;
+  avg_completeness: number | null;
+  avg_relevance: number | null;
+  avg_clarity: number | null;
+  avg_overall: number | null;
+  p50_latency_ms: number | null;
+  total_tokens: number;
+  total_cost_usd: string;
+  notes: string | null;
+};
+
+export type EvalResult = {
+  question_id: string;
+  category: string;
+  question: string;
+  expected_route: string;
+  route: string | null;
+  answer: string;
+  correctness: number | null;
+  completeness: number | null;
+  relevance: number | null;
+  clarity: number | null;
+  overall: number | null;
+  rationale: string | null;
+  latency_ms: number;
+  tokens: number;
+  cost_usd: string;
+  error: string | null;
+};
+
+export type EvalRunDetail = EvalRunSummary & { results: EvalResult[] };
+
 export type ExecutionDetail = ExecutionSummary & {
   error_detail: string | null;
   snapshot: Record<string, unknown> | null;
@@ -744,6 +789,10 @@ export const api = {
       token,
     );
   },
+  listEvalRuns: (token: string) =>
+    request<EvalRunSummary[]>("/api/v1/evals/runs", {}, token),
+  getEvalRun: (token: string, runId: number) =>
+    request<EvalRunDetail>(`/api/v1/evals/runs/${runId}`, {}, token),
   getExecution: (token: string, executionId: number) =>
     request<ExecutionDetail>(`/api/v1/executions/${executionId}`, {}, token),
   rateExecution: (token: string, executionId: number, rating: number) =>
