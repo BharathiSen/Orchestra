@@ -197,7 +197,17 @@ jobs:
 
       - name: Install Chromium
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        # Hosted runners' apt mirrors fail transiently ("Temporary failure
+        # resolving azure.archive.ubuntu.com"), which is not a reason to fail the
+        # build. Retry with backoff; a persistent outage still fails after three.
+        run: |
+          for attempt in 1 2 3; do
+            npx playwright install --with-deps chromium && exit 0
+            echo "::warning::Chromium install failed (attempt $attempt of 3); retrying"
+            sleep $((attempt * 20))
+          done
+          echo "::error::Could not install Chromium after 3 attempts"
+          exit 1
 
       - name: Run Playwright
         working-directory: frontend

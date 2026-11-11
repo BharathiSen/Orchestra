@@ -59,7 +59,7 @@ export function ChatControls({
         </select>
       </label>
       <label className="text-xs text-fg-muted">
-        Agent (system prompt)
+        Agent (prompt + model)
         <select
           value={agentId}
           onChange={(e) => onAgentChange(e.target.value ? Number(e.target.value) : "")}

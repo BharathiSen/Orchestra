@@ -170,6 +170,12 @@ export default function ExecutionDetailPage() {
           <p className="mt-1 text-fg-muted">
             {execution.pipeline} · {execution.model_name} · {execution.status}
           </p>
+          {snapshot.seeded === true && (
+            <p className="mt-2 inline-block rounded-md border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
+              Sample execution created by the demo seed script. Its timings,
+              tokens, and scores are illustrative, not a measured run.
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <button

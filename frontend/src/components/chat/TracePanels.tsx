@@ -168,7 +168,7 @@ export function RetrievedContextPanel({ chunks }: { chunks: RetrievedChunk[] }) 
         {chunks.map((chunk) => (
           <div key={chunk.chunk_id} className="rounded-md border border-emerald-500/25 bg-surface px-2 py-1.5">
             <p className="font-medium text-fg">
-              ✓ Chunk {chunk.chunk_index} · {chunk.document_name}
+              ✓ Chunk {chunk.chunk_index + 1} · {chunk.document_name}
               {typeof chunk.score === "number" && (
                 <span className="ml-1.5 font-normal text-fg-subtle">
                   ({chunk.score.toFixed(3)})

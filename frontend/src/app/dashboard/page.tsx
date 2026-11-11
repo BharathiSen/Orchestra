@@ -100,22 +100,22 @@ export default function DashboardPage() {
             agents.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link
             href="/evals"
-            className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
+            className="touch-row inline-flex items-center rounded-lg border border-line-strong px-3 text-sm font-medium hover:bg-raised"
           >
             Evaluations
           </Link>
           <Link
             href="/projects"
-            className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
+            className="touch-row inline-flex items-center rounded-lg border border-line-strong px-3 text-sm font-medium hover:bg-raised"
           >
             Manage projects
           </Link>
           <button
             onClick={logout}
-            className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium hover:bg-raised"
+            className="touch-row inline-flex items-center rounded-lg border border-line-strong px-3 text-sm font-medium hover:bg-raised"
           >
             Log out
           </button>

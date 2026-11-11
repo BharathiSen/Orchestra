@@ -1,4 +1,5 @@
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response, status
@@ -18,6 +19,7 @@ from app.core.middleware import (
 )
 from app.core.redis_client import get_redis
 from app.core.startup_checks import run_startup_checks
+from app.knowledge import embedding
 from app.knowledge.embedding import warm_up
 
 logging.basicConfig(
@@ -69,9 +71,11 @@ async def lifespan(_: FastAPI):
         logger.warning("Redis is not reachable at startup: %s", exc)
 
     if settings.embedding_warmup_enabled:
-        # Deliberately blocking: the whole point is that no request can arrive
-        # before the model is ready. warm_up() never raises.
-        warm_up()
+        # In the background, so the port opens now. Blocking here kept the API
+        # unreachable for ~40s on an empty model cache (every free-tier wake),
+        # though only grounded questions need the model; one that arrives
+        # early waits for this same build. warm_up() never raises.
+        threading.Thread(target=warm_up, name="embedding-warmup", daemon=True).start()
     else:
         logger.info("Embedding warm-up disabled; the model loads on first use.")
 
@@ -171,6 +175,10 @@ def health_ready(response: Response) -> dict[str, object]:
         checks["redis"] = "unavailable"
         if not settings.rate_limit_fail_open:
             ready = False
+
+    # Informational: chat, auth, and observability work without the model, and
+    # a grounded question that arrives while it is "warming" waits for it.
+    checks["embeddings"] = embedding.status
 
     if not ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

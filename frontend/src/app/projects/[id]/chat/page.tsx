@@ -112,6 +112,18 @@ export default function ProjectChatPage() {
     [],
   );
 
+  // An agent's configured model is its default: picking the agent moves the
+  // model picker to it, and the picker stays free to override for this chat.
+  // An ID the provider no longer lists (a retired model) is left alone, since
+  // the select cannot show it and would display a model that is not sent.
+  function changeAgent(nextAgentId: number | "") {
+    setAgentId(nextAgentId);
+    const agentModel = agents.find((a) => a.id === nextAgentId)?.model_name;
+    if (agentModel && models.some((m) => m.id === agentModel)) {
+      setModel(agentModel);
+    }
+  }
+
   function applyReplayParams(searchParams: URLSearchParams) {
     const message = searchParams.get("message");
     if (message) setInput(message);
@@ -348,12 +360,10 @@ export default function ProjectChatPage() {
           onOrchestraStep: (step) => patchAssistant(withOrchestraStep(step)),
           onToken: (text) => patchAssistant(withToken(text)),
           onError: setError,
-          onDone: async () => {
-            await refreshConversations(token);
-            if (streamConversationId) {
-              await refreshMemory(token, streamConversationId);
-            }
-          },
+          // Nothing to refresh on `done`: the block below reloads conversations
+          // and messages as soon as the stream closes, and the memory panel
+          // reloads when `sending` clears. Refreshing here as well made every
+          // turn fetch conversations twice and memory three times.
         },
       );
 
@@ -385,9 +395,17 @@ export default function ProjectChatPage() {
         });
         saveConversationExtras(currentId, extras);
         pendingRetrievedRef.current = [];
-        await refreshMemory(token, currentId);
+        // The memory panel reloads from the effect once `sending` clears.
       }
     } catch (err) {
+      // A session that expired while the visitor was typing: send them to sign
+      // in, as every other page does, rather than leave "Not authenticated" in
+      // a chat that will refuse every further message.
+      if (err instanceof ApiError && err.status === 401) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
       setError(err instanceof ApiError ? err.message : "Chat failed");
       const dropBubble = () => setMessages((prev) => prev.filter((m) => m.id !== assistantId));
       if (streamConversationId) {
@@ -477,7 +495,7 @@ export default function ProjectChatPage() {
             onModelChange={setModel}
             agents={agents}
             agentId={agentId}
-            onAgentChange={setAgentId}
+            onAgentChange={changeAgent}
             temperature={temperature}
             onTemperatureChange={setTemperature}
             enableOrchestra={enableOrchestra}

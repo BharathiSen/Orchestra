@@ -683,9 +683,23 @@ the design fonts never loaded), and the landing and login pages send one
 fire-and-forget request to `/health/live` so a sleeping backend starts booting
 before the visitor signs in.
 
-**Embedding warm-up** takes ~20 s at startup and removes a cold-start penalty that
-previously exceeded four minutes on the first grounded question. After warm-up
-the first RAG query completes in ~0.6 s — indistinguishable from a warm one.
+**Embedding warm-up** removes a cold-start penalty that previously exceeded four
+minutes on the first grounded question. After warm-up the first RAG query
+completes in ~0.6 s — indistinguishable from a warm one. It used to block
+startup, which on an empty model cache (each free-tier wake: the disk does not
+survive spin-down) kept even `/health/live` unreachable while 65 MB downloaded.
+It now runs in the background; `/health/ready` reports it as
+`checks.embeddings: warming | ready | failed`, and a grounded question that
+arrives early waits for the same build. Measured locally from process start,
+empty cache:
+
+| | Before | After |
+|---|---:|---:|
+| API answering (`/health/live`) | 39.9 s | 9.5 s |
+| Embedding model ready | 39.9 s | 35.0 s |
+
+The rest of a live cold start is Render waking the instance, which code cannot
+shorten.
 
 **Provider variance dominates a single sample.** On the retired Llama model the
 first call after an idle period measured 3.9 s TTFT on the direct path and the
@@ -726,8 +740,9 @@ python scripts/benchmark_latency.py
 Those figures are harness overhead. They are not the hosted Groq numbers in the
 table above, and they are not a claim that the warm-TTFT targets (1s / 2s / 3s)
 have been re-measured on a live provider. Cold start — Render wake-up plus
-embedding warm-up — stays separate from warm request latency. Warm-up is still
-blocking at startup when `EMBEDDING_WARMUP_ENABLED` is on.
+embedding warm-up — stays separate from warm request latency. Warm-up runs in a
+background thread when `EMBEDDING_WARMUP_ENABLED` is on, so it no longer holds
+the port closed.
 
 One local run (FakeLLM, SQLite, 1 warmup + 5 repeats, 2026-10-28) wrote
 `backend/benchmarks/latency_harness.json`:
@@ -797,9 +812,23 @@ sample size — with `rag` up (4.75 → 5.0), `storage` down (5.0 → 4.75), and
   limiting an LLM API endpoint" scored completeness 2/5 both times: the pipeline
   produces a generic API-gateway checklist and misses per-user concurrency limits
   and token-budget caps. Prompt wording did not fix it.
-- **Single runs are not evidence.** Each prompt version was run once, by one judge
-  model; two answers in each run were degraded by Groq 429s. A claim of
-  improvement would need repeated runs and a harder set.
+- **Single runs are not evidence.** Two later runs of the *same* prompts put
+  numbers on that:
+
+| Run | Prompts | Overall | Correctness | Completeness | Cost | p50 per question | Degraded |
+|---|---|---:|---:|---:|---:|---:|---:|
+| baseline | `997678d0` | 4.917 | 5.00 | 4.67 | $0.0073 | 5.5 s | 2 / 12 |
+| grounded writer | `2979535e` | 4.896 | 4.92 | 4.67 | $0.0076 | 6.2 s | 1 / 12 |
+| grounded writer (repeat) | `2979535e` | 4.875 | 5.00 | 4.58 | $0.0056 | 8.5 s | 4 / 12 |
+| grounded writer (paced) | `2979535e` | 4.896 | 4.92 | 4.67 | $0.0080 | 6.2 s | 1 / 12 |
+
+  Identical prompts moved 0.02 between runs: as much as the prompt change did.
+  "Degraded" means an agent hit a Groq 429 and the answer came from the
+  fallback path; the runner judges those anyway. The cause is measurable, not
+  bad luck: **a complete full-route turn uses 7,000–8,000 tokens, and Groq's
+  free tier allows 8,000 per minute** on gpt-oss-20b. Back-to-back questions
+  (3 s apart, the repeat run) degraded 4 of 5 full-route answers; 35 s apart
+  (the paced run), 1 of 5. Pass `--pause 35` for runs meant as evidence.
 
 ```bash
 cd backend

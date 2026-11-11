@@ -14,7 +14,7 @@ from app.core.limiter import get_rate_limiter
 from app.evaluation.tracker import ExecutionTracker, StepRecord
 from app.graph import build_agent_graph
 from app.memory.service import MemoryService
-from app.models import Agent, Conversation, Message, Project, User
+from app.models import Agent, Conversation, Execution, Message, Project, User
 from app.observability import TraceService, TrackingLLM
 from app.observability.latency import LatencyTimeline, pop_timeline, push_timeline
 from app.orchestrator import OrchestraEngine
@@ -45,6 +45,9 @@ class ChatService:
         self.tools = ensure_default_tools()
         self.rag = RagService(db)
         self.memory = MemoryService(db)
+        # (trace service, tracker, execution) of the turn currently streaming, so
+        # a client disconnect can close its execution row. One service per request.
+        self._live_turn: tuple[TraceService, ExecutionTracker, Execution] | None = None
 
     def _owned_project(self, *, project_id: int, user: User) -> Project:
         project = self.db.get(Project, project_id)
@@ -289,8 +292,37 @@ class ChatService:
         ctx = push_timeline(timeline)
         try:
             yield from self._generate_chat(user=user, payload=payload, timeline=timeline)
+        except GeneratorExit:
+            # The client went away mid-answer (closed tab, navigated, dropped
+            # connection): Starlette closes this generator. Without this the
+            # execution opened for the turn stays `running` forever.
+            self._close_abandoned_turn(user)
+            raise
         finally:
             pop_timeline(ctx)
+
+    def _close_abandoned_turn(self, user: User) -> None:
+        """Finish the execution a disconnected client left open. Fails open."""
+        if self._live_turn is None:
+            return
+        traces, tracker, execution = self._live_turn
+        try:
+            if execution.status != "running":
+                return
+            for step in tracker.steps:
+                if step.status == "running":
+                    tracker.end_step(step, status="error")
+            traces.complete(
+                execution,
+                tracker=tracker,
+                final_response="",
+                status="error",
+                error_detail="Client disconnected before the answer finished",
+            )
+            self._record_token_spend(user_id=user.id, tracker=tracker)
+        except Exception:  # noqa: BLE001 — cleanup must never mask the disconnect
+            logger.exception("Could not close abandoned execution")
+            self.db.rollback()
 
     def _generate_chat(
         self,
@@ -484,6 +516,7 @@ class ChatService:
             prompt=payload.message,
         )
         timeline.execution_id = execution.id
+        self._live_turn = (traces, tracker, execution)
         yield _sse(
             {
                 "type": "execution_meta",
@@ -708,7 +741,7 @@ class ChatService:
                             )
 
                         for evt in node_payload.get("tool_events", []):
-                            turn_trace["tools"].append(evt)
+                            _merge_tool_event(turn_trace["tools"], evt)
                             yield _sse(evt)
 
                         if node_payload.get("final_answer"):
@@ -944,6 +977,23 @@ def _chunk_text(text: str, size: int = 24) -> Iterator[str]:
 
 def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, default=str)}\n\n"
+
+
+def _merge_tool_event(trace_tools: list[dict], evt: dict) -> None:
+    """Keep one persisted entry per tool call.
+
+    A call emits a `tool_start` and a `tool_result` that share a `tool_call_id`.
+    The live stream needs both events, but the stored trace is a list of *calls*:
+    storing both made every call render twice after a reload, one card stuck on
+    "running" beside the finished one.
+    """
+    call_id = evt.get("tool_call_id")
+    if call_id:
+        for index, existing in enumerate(trace_tools):
+            if existing.get("tool_call_id") == call_id:
+                trace_tools[index] = {**existing, **evt}
+                return
+    trace_tools.append(dict(evt))
 
 
 def list_supported_models() -> dict:

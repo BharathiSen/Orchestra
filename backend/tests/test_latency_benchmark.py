@@ -230,3 +230,100 @@ def test_labelled_cases_complete_and_summarize(client, monkeypatch):
         )
 
     assert {item["case_id"] for item in report_cases} == {case.case_id for case in CASES}
+
+
+def test_startup_does_not_wait_for_the_embedding_model(monkeypatch):
+    """The port must open before the model is ready.
+
+    On an empty model cache (each free-tier wake) warm-up took ~40s, and while
+    lifespan blocked on it even /health/live was unreachable, so a sleeping
+    demo answered nothing at all until the download finished.
+    """
+    import threading
+
+    from fastapi.testclient import TestClient
+
+    from app import main
+    from app.knowledge import embedding
+
+    release = threading.Event()
+    started = threading.Event()
+
+    def slow_warm_up() -> bool:
+        started.set()
+        embedding.status = "warming"
+        release.wait(timeout=10)
+        return True
+
+    class _NoopConnection:
+        def execute(self, *_args, **_kwargs):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    class _NoopEngine:
+        """Lifespan's schema backfill is PostgreSQL DDL; this test is about warm-up."""
+
+        def begin(self):
+            return _NoopConnection()
+
+        connect = begin
+
+    monkeypatch.setattr(main, "engine", _NoopEngine())
+    monkeypatch.setattr(main.Base.metadata, "create_all", lambda **_kw: None)
+    monkeypatch.setattr(settings, "embedding_warmup_enabled", True)
+    monkeypatch.setattr(main, "warm_up", slow_warm_up)
+    monkeypatch.setattr(embedding, "status", "lazy")
+    try:
+        with TestClient(main.app) as client:
+            assert started.wait(timeout=5), "warm-up was never started"
+            assert client.get("/health/live").status_code == 200
+            ready = client.get("/health/ready").json()
+            assert ready["checks"]["embeddings"] == "warming"
+    finally:
+        release.set()
+
+
+def test_concurrent_first_use_builds_the_embedding_model_once(monkeypatch):
+    """Warm-up and an early grounded request must share one build (one download)."""
+    import sys
+    import threading
+    import types
+
+    from app.knowledge import embedding
+
+    builds = {"n": 0}
+    gate = threading.Event()
+
+    class FakeTextEmbedding:
+        def __init__(self, model_name: str) -> None:
+            builds["n"] += 1
+            gate.wait(timeout=5)  # hold the build open so the callers overlap
+
+        def embed(self, texts):
+            return iter([[0.0] * embedding.EMBEDDING_DIMENSION for _ in texts])
+
+    monkeypatch.setitem(
+        sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=FakeTextEmbedding)
+    )
+    monkeypatch.setattr(embedding, "_model", None)
+    monkeypatch.setattr(embedding, "status", "lazy")
+
+    results: list[object] = []
+    threads = [
+        threading.Thread(target=lambda: results.append(embedding._get_model()))
+        for _ in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    gate.set()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert builds["n"] == 1
+    assert len(results) == 4 and len({id(r) for r in results}) == 1
+    assert embedding.status == "ready"

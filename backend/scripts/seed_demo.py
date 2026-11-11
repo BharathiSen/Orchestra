@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
+from app.core.config import settings  # noqa: E402
 from app.core.database import Base, SessionLocal, engine  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.evaluation.cost import calculate_cost_usd  # noqa: E402
@@ -51,6 +52,7 @@ from app.models import (  # noqa: E402
     Project,
     User,
 )
+from app.services.model_aliases import GROQ_RETIRED_MODELS  # noqa: E402
 
 DEFAULT_EMAIL = "demo@orchestra.dev"
 DEFAULT_PASSWORD = "orchestra-demo"
@@ -138,9 +140,16 @@ PIPELINE_STEPS = {
 }
 
 DEMO_RESPONSE = (
-    "Based on the product handbook, here is the answer along with the section it "
-    "came from. Open this execution in Observability to see the retrieved chunks, "
-    "the agents that ran, and the token and cost breakdown for each step."
+    "This is a sample execution created by the demo seed script, so the dashboard "
+    "has history before anyone has chatted. Its timings, tokens, and scores are "
+    "illustrative. Send a message in Chat to produce a real, fully traced run "
+    "with retrieved chunks, per-agent steps, and measured latency."
+)
+# Worded as the provider client words a real timeout, so the sample failure
+# looks like what the UI shows when one actually happens.
+DEMO_TIMEOUT_DETAIL = (
+    f"Groq did not respond within {settings.llm_request_timeout_seconds:.0f}s. "
+    "Try a shorter prompt or a faster model."
 )
 
 
@@ -281,6 +290,12 @@ def _seed_agents(db: Session, *, project: Project, kb: KnowledgeBase) -> list[Ag
             db.add(agent)
             db.flush()
             print(f"  created agent '{spec['name']}'")
+        elif agent.model_name in GROQ_RETIRED_MODELS:
+            # Seeded before the provider retired the model. The chat picker now
+            # follows the agent's model, so a dead ID would surface as one the
+            # visitor cannot select. Executions keep theirs: they are history.
+            print(f"  agent '{spec['name']}': {agent.model_name} -> {DEFAULT_MODEL}")
+            agent.model_name = DEFAULT_MODEL
         if spec["attach_knowledge_base"] and kb not in agent.knowledge_bases:
             agent.knowledge_bases.append(kb)
         agents.append(agent)
@@ -368,7 +383,7 @@ def _seed_executions(
             model_name=DEFAULT_MODEL,
             prompt=prompt,
             final_response=None if failed else DEMO_RESPONSE,
-            error_detail="Upstream provider timed out after 30s" if failed else None,
+            error_detail=DEMO_TIMEOUT_DETAIL if failed else None,
             started_at=started_at,
             completed_at=started_at + timedelta(milliseconds=latency_ms),
             latency_ms=latency_ms,

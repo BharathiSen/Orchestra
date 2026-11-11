@@ -8,7 +8,13 @@ that the machinery around the model does what the README says it does.
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
+from app.services.llm_types import ChatCompletionResult, ToolCallRequest
 from tests.conftest import auth, event_types, make_project, register, sse_events
+from tests.fakes import FakeLLM
 
 
 def _chat(client, token, project_id, message="Hello there", **overrides):
@@ -460,3 +466,101 @@ def test_turn_with_a_failed_agent_is_recorded_as_degraded(client, fake_llm, monk
     assert any(step["status"] == "error" for step in execution["steps"])
     assert execution["status"] == "degraded"
     assert execution["success"] is False
+
+
+@pytest.mark.parametrize("disconnect_after", ["execution_meta", "token"])
+@pytest.mark.parametrize("orchestra", [False, True], ids=["direct", "orchestra"])
+def test_abandoned_stream_does_not_leave_the_execution_running(
+    client, db_session, disconnect_after, orchestra
+):
+    """A disconnect must close the execution row, not strand it as `running`.
+
+    The row is created and announced before any model work, so a client that
+    leaves at any point afterwards — even before the first token — would
+    otherwise leave a phantom run in Observability forever, with the tokens and
+    cost already spent never recorded.
+
+    Drives the service generator directly and closes it: that is exactly what
+    Starlette does on a real disconnect, and the only way to test it, because
+    TestClient buffers the whole response and so never actually disconnects.
+    """
+    from app.models import Execution, User
+    from app.schemas.chat import ChatRequest
+    from app.services.chat_service import ChatService
+
+    token, user_id = register(client)
+    project_id = make_project(client, token)
+
+    events = ChatService(db_session).stream_chat(
+        user=db_session.get(User, user_id),
+        payload=ChatRequest(
+            project_id=project_id,
+            message="Compare Redis and Postgres in detail",
+            enable_tools=False,
+            enable_orchestra=orchestra,
+        ),
+    )
+    for raw in events:
+        if json.loads(raw.removeprefix("data:").strip())["type"] == disconnect_after:
+            break
+    events.close()  # the client went away
+
+    db_session.expire_all()
+    execution = db_session.query(Execution).filter(Execution.project_id == project_id).one()
+    assert execution.status != "running", "abandoned stream left a phantom running execution"
+    assert execution.status == "error"
+    assert execution.success is False
+    assert "disconnected" in (execution.error_detail or "")
+    assert execution.completed_at is not None
+
+
+class _CalculatorCallingLLM(FakeLLM):
+    """Asks for one calculator call when offered tools, otherwise answers."""
+
+    def complete_chat(self, *, messages, tools=None, **kwargs):
+        already_called = any(m.get("role") == "tool" for m in messages)
+        if tools and not already_called:
+            return ChatCompletionResult(
+                content=None,
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_calc_1",
+                        name="calculator",
+                        arguments='{"expression": "847 * 23"}',
+                    )
+                ],
+                finish_reason="tool_calls",
+            )
+        return super().complete_chat(messages=messages, tools=tools, **kwargs)
+
+
+def test_a_tool_call_is_stored_once_but_streamed_as_start_and_result(client, monkeypatch):
+    """The stored trace is a list of calls; the stream still carries both events.
+
+    Storing the `tool_start` and `tool_result` events separately made every call
+    render twice after a reload — one card stuck on "running" next to the
+    finished one — because the UI draws one card per stored entry.
+    """
+    monkeypatch.setattr(
+        "app.services.chat_service.get_llm_service", lambda: _CalculatorCallingLLM()
+    )
+    token, _ = register(client)
+    project_id = make_project(client, token)
+
+    response = _chat(
+        client, token, project_id, message="What is 847 * 23?", enable_tools=True
+    )
+    events = sse_events(response.text)
+    streamed = [e for e in events if e.get("type") in {"tool_start", "tool_result"}]
+    assert [e["type"] for e in streamed] == ["tool_start", "tool_result"], "SSE contract changed"
+    conversation_id = events[0]["conversation_id"]
+
+    messages = client.get(
+        f"/api/v1/conversations/{conversation_id}/messages", headers=auth(token)
+    ).json()
+    stored = [t for m in messages if m["role"] == "assistant" for t in (m.get("trace") or {}).get("tools", [])]
+
+    assert len(stored) == 1, f"one call stored as {len(stored)} entries: {stored}"
+    assert stored[0]["tool_call_id"] == "call_calc_1"
+    assert stored[0]["status"] == "complete"
+    assert "19481" in stored[0]["result"]

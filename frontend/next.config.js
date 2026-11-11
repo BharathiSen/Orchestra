@@ -13,10 +13,14 @@ const apiOrigin = (() => {
 
 // Next.js injects inline bootstrap scripts and inline style tags with no nonce
 // in the App Router's static output, so 'unsafe-inline' is required for these
-// two directives. Everything else is locked to same-origin.
+// two directives (nonces would force every page to render dynamically and give
+// up static delivery). 'unsafe-eval' is only for the dev server's React Refresh;
+// production code never evals, so it is not granted there. Everything else is
+// locked to same-origin.
+const devOnlyEval = process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'";
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  `script-src 'self' 'unsafe-inline'${devOnlyEval}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",

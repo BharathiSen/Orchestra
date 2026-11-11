@@ -1,8 +1,11 @@
 import json
+import math
 import random
 import time
 import uuid
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -10,6 +13,13 @@ from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.services.llm_types import ChatCompletionResult, ToolCallRequest
+
+# Longest provider-requested wait a chat turn will sit through before retrying.
+# Beyond this the visitor is better served by an immediate, explained error.
+MAX_RETRY_AFTER_SECONDS = 10.0
+# Wall time into a chat turn after which a rate-limited call fails instead of
+# sleeping for another attempt. Only applies inside a timed request.
+TURN_RETRY_BUDGET_SECONDS = 25.0
 
 
 class OpenAICompatibleService:
@@ -51,11 +61,37 @@ class OpenAICompatibleService:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
-    def _sleep_backoff(self, attempt: int) -> None:
+    def _sleep_backoff(self, attempt: int, retry_after: float | None = None) -> None:
         # Exponential backoff with jitter to ride out provider TPM limits.
-        # Capped so a retry storm cannot dominate the request's wall time.
+        # Capped so a retry storm cannot dominate the request's wall time. When
+        # the provider says how long to wait, waiting less just earns another
+        # 429, so its Retry-After wins over a shorter computed delay.
         base = min(8.0, 2**attempt)
+        if retry_after is not None:
+            base = max(base, retry_after)
         time.sleep(base + random.uniform(0, 0.75))
+
+    def _should_retry_429(self, exc: HTTPException, attempt: int) -> bool:
+        """Whether a rate-limited call is worth another attempt.
+
+        A Retry-After beyond the cap means the provider will refuse again for
+        longer than a chat turn should stall, so fail now instead of sleeping.
+        """
+        if attempt >= self.max_retries - 1:
+            return False
+        retry_after = _retry_after_seconds(exc)
+        if retry_after is not None and retry_after > MAX_RETRY_AFTER_SECONDS:
+            return False
+        # A turn makes several LLM calls; each one retrying in isolation could
+        # stack waits far past what a visitor will sit through. Stop retrying
+        # once the wait would carry the whole turn past its budget.
+        from app.observability.latency import current_timeline
+
+        timeline = current_timeline()
+        if timeline is None:
+            return True
+        wait = max(min(8.0, 2**attempt), retry_after or 0.0)
+        return timeline.elapsed_ms() / 1000 + wait <= TURN_RETRY_BUDGET_SECONDS
 
     def _note_retry(self) -> None:
         from app.observability.latency import current_timeline
@@ -87,18 +123,24 @@ class OpenAICompatibleService:
                 last_exc = exc
                 if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
                     raise
-                if attempt >= self.max_retries - 1:
+                if not self._should_retry_429(exc, attempt):
                     raise
                 self._note_retry()
-                self._sleep_backoff(attempt)
+                self._sleep_backoff(attempt, _retry_after_seconds(exc))
             except httpx.HTTPStatusError as exc:
                 last_exc = exc
                 if exc.response.status_code != 429:
                     raise
                 if attempt >= self.max_retries - 1:
-                    self._raise_http_error(exc.response.status_code, exc.response.text)
+                    self._raise_http_error(
+                        exc.response.status_code,
+                        exc.response.text,
+                        exc.response.headers.get("retry-after"),
+                    )
                 self._note_retry()
-                self._sleep_backoff(attempt)
+                self._sleep_backoff(
+                    attempt, _parse_retry_after(exc.response.headers.get("retry-after"))
+                )
         if last_exc:
             raise last_exc
         raise RuntimeError(f"{self.provider_name} retry loop exhausted")
@@ -149,7 +191,11 @@ class OpenAICompatibleService:
                 with httpx.Client(timeout=self.timeout_seconds) as client:
                     response = client.post(url, headers=self._headers(), json=payload)
                     if response.status_code >= 400:
-                        self._raise_http_error(response.status_code, response.text)
+                        self._raise_http_error(
+                            response.status_code,
+                            response.text,
+                            response.headers.get("retry-after"),
+                        )
                     return response.json()
             except HTTPException:
                 raise
@@ -240,7 +286,11 @@ class OpenAICompatibleService:
                 ):
                     if response.status_code >= 400:
                         body = response.read().decode("utf-8", errors="replace")
-                        self._raise_http_error(response.status_code, body)
+                        self._raise_http_error(
+                            response.status_code,
+                            body,
+                            response.headers.get("retry-after"),
+                        )
 
                     for line in response.iter_lines():
                         if not line:
@@ -279,10 +329,11 @@ class OpenAICompatibleService:
                 last_error = exc
                 if (
                     exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS
-                    or attempt >= self.max_retries - 1
+                    or not self._should_retry_429(exc, attempt)
                 ):
                     raise
-                self._sleep_backoff(attempt)
+                self._note_retry()
+                self._sleep_backoff(attempt, _retry_after_seconds(exc))
             except httpx.TimeoutException as exc:
                 raise self._timeout_error(exc) from exc
             except httpx.ConnectError as exc:
@@ -302,7 +353,9 @@ class OpenAICompatibleService:
         if last_error:
             raise last_error
 
-    def _raise_http_error(self, status_code: int, body: str) -> None:
+    def _raise_http_error(
+        self, status_code: int, body: str, retry_after: str | None = None
+    ) -> None:
         lowered = body.lower()
         if status_code in {401, 403}:
             raise HTTPException(
@@ -310,14 +363,44 @@ class OpenAICompatibleService:
                 detail=f"Invalid {self.provider_name} credentials. {body[:300]}",
             )
         if status_code == 429 or "quota" in lowered or "rate" in lowered:
+            # Carried on the exception so the retry loop can honour it.
+            seconds = _parse_retry_after(retry_after)
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"{self.provider_name} quota/rate limit: {body[:500]}",
+                headers=(
+                    {"Retry-After": str(math.ceil(seconds))}
+                    if seconds is not None
+                    else None
+                ),
             )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"{self.provider_name} error ({status_code}): {body[:500]}",
         )
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Seconds from a Retry-After header: delta-seconds or an HTTP-date."""
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - datetime.now(UTC)).total_seconds())
+
+
+def _retry_after_seconds(exc: HTTPException) -> float | None:
+    headers = exc.headers or {}
+    return _parse_retry_after(headers.get("Retry-After"))
 
 
 def _usage_int(usage: dict[str, Any], key: str) -> int | None:
