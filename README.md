@@ -51,28 +51,15 @@ password: orchestra-demo
 
 > Shared workspace. Anything you create is visible to others and may be reset.
 
-<!-- ---------------------------------------------------------------------------
-     SCREENSHOTS — add three images here and uncomment the block below.
-
-     Most readers never click through to the demo, so without these the
-     observability surface (the actual differentiator) is invisible in the README.
-     Capture at ~1440px wide, save under docs/, keep the filenames below.
-
-       1. docs/screenshot-chat.png         chat mid-answer, trace panel open,
-                                           retrieved chunks visible
-       2. docs/screenshot-execution.png    execution detail — per-step latency,
-                                           tokens, and cost
-       3. docs/screenshot-dashboard.png    dashboard aggregates
-
 ### Screens
 
 | Traced conversation | Execution detail |
 |---|---|
-| ![Chat with live agent steps and retrieved sources](docs/screenshot-chat.png) | ![Per-step latency, tokens, and cost](docs/screenshot-execution.png) |
+| ![Chat with live agent steps for a full-route Orchestra run](docs/screenshot-chat.png) | ![Per-step latency, tokens, and cost for one execution](docs/screenshot-execution.png) |
 
-![Dashboard aggregates](docs/screenshot-dashboard.png)
+![Execution history with success rate, latency, tokens, cost, and per-stage averages](docs/screenshot-observability.png)
 
----------------------------------------------------------------------------- -->
+<sub>Captured from the seeded demo workspace at 1440px on `openai/gpt-oss-20b` via Groq.</sub>
 
 ---
 
@@ -601,6 +588,12 @@ layout uses `dvh`, with `vh` retained as the fallback line beneath it.
 
 Measured against the deployed instance (Groq `llama-3.1-8b-instant`, Neon,
 Upstash). Numbers are indicative, not a benchmark.
+
+> Groq has since retired `llama-3.1-8b-instant`; the default is now
+> `openai/gpt-oss-20b`, and stored agents that still name a retired model are
+> routed to its replacement. These figures predate that switch and have not
+> been re-measured. A local full-route run on gpt-oss-20b took ~6.5 s and ~4.6k
+> tokens.
 
 | Path | Latency | Tokens | Cost/turn |
 |---|---|---|---|

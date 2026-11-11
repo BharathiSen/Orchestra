@@ -590,7 +590,7 @@ export default function ProjectChatPage() {
   const [toolsCatalog, setToolsCatalog] = useState<ToolInfo[]>([]);
   const [llmConfigured, setLlmConfigured] = useState(true);
   const [provider, setProvider] = useState("groq");
-  const [model, setModel] = useState("llama-3.1-8b-instant");
+  const [model, setModel] = useState("openai/gpt-oss-20b");
   const [agentId, setAgentId] = useState<number | "">("");
   const [temperature, setTemperature] = useState(0.2);
   const [enableTools, setEnableTools] = useState(false);

@@ -15,7 +15,7 @@ def _chat(client, token, project_id, message="Hello there", **overrides):
     payload = {
         "project_id": project_id,
         "message": message,
-        "model": "llama-3.1-8b-instant",
+        "model": "openai/gpt-oss-20b",
         "enable_tools": False,
         "enable_orchestra": False,
     }
@@ -431,3 +431,32 @@ def test_replay_returns_the_original_prompt_and_flags(client):
     assert replay["prompt"] == "replay me"
     assert replay["enable_orchestra"] is True
     assert replay["enable_tools"] is False
+
+
+def test_turn_with_a_failed_agent_is_recorded_as_degraded(client, fake_llm, monkeypatch):
+    """An answer produced after an agent failed is not a clean success."""
+    token, _ = register(client)
+    project_id = make_project(client, token)
+
+    def broken_complete_chat(**_kwargs):
+        raise RuntimeError("planner provider 404")
+
+    # Non-streaming calls (planner, writer) fail; the streamed answer still works.
+    monkeypatch.setattr(fake_llm, "complete_chat", broken_complete_chat)
+
+    response = _chat(
+        client,
+        token,
+        project_id,
+        message="Compare Redis and Postgres for session storage in detail",
+        enable_orchestra=True,
+    )
+    events = sse_events(response.text)
+    assert events[-1]["type"] == "done"
+
+    execution = client.get(
+        f"/api/v1/executions/{events[-1]['execution_id']}", headers=auth(token)
+    ).json()
+    assert any(step["status"] == "error" for step in execution["steps"])
+    assert execution["status"] == "degraded"
+    assert execution["success"] is False

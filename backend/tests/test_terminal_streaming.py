@@ -221,3 +221,37 @@ def test_direct_path_records_measured_tokens_when_the_provider_reports_them(clie
     assert streamed, "the direct path should record a streamed LLM call"
     # The fake fills the usage sink, so this must not be flagged as an estimate.
     assert streamed[0]["estimated"] is False
+
+
+# --- markdown-formatted markers (reasoning models write these) --------------
+
+
+def _run_filter(text: str) -> tuple[str, str]:
+    f = FinalAnswerFilter()
+    out = "".join(f.feed(ch) for ch in text) + f.finish()
+    return out, f.notes
+
+
+def test_filter_accepts_a_bold_heading_marker_without_a_colon():
+    out, notes = _run_filter("**NOTES**\n- tighten wording\n\n**FINAL**\nRedis is faster.")
+    assert out == "Redis is faster."
+    assert notes == "- tighten wording"
+
+
+def test_filter_accepts_markdown_heading_and_bold_colon_forms():
+    assert _run_filter("NOTES: ok\n### FINAL\nAnswer.")[0] == "Answer."
+    assert _run_filter("NOTES: ok\n**FINAL:** Answer.")[0] == "Answer."
+
+
+def test_filter_does_not_open_on_words_that_merely_contain_final():
+    out, notes = _run_filter("The finally block runs. Semifinal: no.")
+    assert out == "The finally block runs. Semifinal: no."
+    assert notes == "Model returned a single block; treated as final answer."
+
+
+def test_reviewer_split_handles_markdown_markers():
+    from app.agents.reviewer import ReviewerAgent
+
+    agent = ReviewerAgent.__new__(ReviewerAgent)
+    notes, final = agent._split("**NOTES**\n- fine\n\n**FINAL**\nThe answer.", "draft")
+    assert (notes, final) == ("- fine", "The answer.")

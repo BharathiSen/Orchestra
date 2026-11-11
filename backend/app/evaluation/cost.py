@@ -7,6 +7,8 @@ from decimal import Decimal
 # Approximate public list prices (USD per 1M tokens). Used for observability demos.
 # Update when provider pricing changes.
 MODEL_PRICING_PER_MILLION: dict[str, dict[str, float]] = {
+    "openai/gpt-oss-20b": {"input": 0.075, "output": 0.30},
+    "openai/gpt-oss-120b": {"input": 0.15, "output": 0.60},
     "llama-3.1-8b-instant": {"input": 0.05, "output": 0.08},
     "llama-3.3-70b-versatile": {"input": 0.59, "output": 0.79},
     "gemma2-9b-it": {"input": 0.20, "output": 0.20},

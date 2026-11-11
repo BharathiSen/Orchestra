@@ -6,6 +6,7 @@ from typing import Any
 
 from app.agents.base import llm_text
 from app.orchestrator.state import OrchestraState
+from app.orchestrator.streaming import clean_notes, find_final_marker
 from app.prompts.reviewer import reviewer_prompt
 
 
@@ -90,16 +91,11 @@ class ReviewerAgent:
         if not text:
             return "No review notes.", draft
 
-        upper = text.upper()
-        if "FINAL:" in upper:
-            idx = upper.index("FINAL:")
-            notes_part = text[:idx]
-            final_part = text[idx + len("FINAL:") :].strip()
-            notes = notes_part
-            if notes.upper().startswith("NOTES:"):
-                notes = notes[len("NOTES:") :].strip()
-            notes = notes.strip() or "Looks good."
-            final = final_part or draft
+        span = find_final_marker(text)
+        if span is not None:
+            start, end = span
+            notes = clean_notes(text[:start])
+            final = text[end:].strip() or draft
             return notes, final
 
         return "Model returned a single block; treated as final answer.", text

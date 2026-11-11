@@ -26,7 +26,7 @@ def _chat(client, token, project_id, case):
         json={
             "project_id": project_id,
             "message": case.message,
-            "model": "llama-3.1-8b-instant",
+            "model": "openai/gpt-oss-20b",
             "enable_tools": case.enable_tools,
             "enable_orchestra": case.enable_orchestra,
         },

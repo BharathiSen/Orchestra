@@ -70,7 +70,7 @@ def main() -> None:
                 json={
                     "project_id": project_id,
                     "message": case.message,
-                    "model": "llama-3.1-8b-instant",
+                    "model": "openai/gpt-oss-20b",
                     "enable_tools": case.enable_tools,
                     "enable_orchestra": case.enable_orchestra,
                 },
@@ -111,7 +111,7 @@ def main() -> None:
     report = {
         "measured_at": datetime.now(UTC).isoformat(),
         "provider": "fake",
-        "model": "llama-3.1-8b-instant",
+        "model": "openai/gpt-oss-20b",
         "label": (
             "In-process harness overhead with FakeLLM and SQLite or the "
             "configured test database. Not a live provider benchmark."

@@ -52,7 +52,7 @@ from app.models import (  # noqa: E402
 
 DEFAULT_EMAIL = "demo@orchestra.dev"
 DEFAULT_PASSWORD = "orchestra-demo"
-DEFAULT_MODEL = "llama-3.1-8b-instant"
+DEFAULT_MODEL = "openai/gpt-oss-20b"
 
 PROJECT_NAME = "Support Copilot"
 PROJECT_DESCRIPTION = (

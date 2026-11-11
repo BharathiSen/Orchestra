@@ -24,7 +24,7 @@ function formatUsd(n: number) {
   return `$${n.toFixed(4)}`;
 }
 
-const STATUS_OPTIONS = ["", "running", "completed", "error", "success"] as const;
+const STATUS_OPTIONS = ["", "running", "completed", "degraded", "error", "success"] as const;
 const PIPELINE_OPTIONS = [
   "",
   "direct",
@@ -360,7 +360,9 @@ export default function ObservabilityPage() {
                             ? "text-teal-700"
                             : ex.status === "error"
                               ? "text-red-600"
-                              : "text-slate-500"
+                              : ex.status === "degraded"
+                                ? "text-amber-600"
+                                : "text-slate-500"
                         }
                       >
                         · {ex.status}

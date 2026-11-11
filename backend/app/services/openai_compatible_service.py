@@ -24,7 +24,9 @@ class OpenAICompatibleService:
         missing_key_hint: str,
         max_retries: int | None = None,
         timeout_seconds: float | None = None,
+        model_aliases: dict[str, str] | None = None,
     ) -> None:
+        self.model_aliases = dict(model_aliases or {})
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.provider_name = provider_name
@@ -101,6 +103,28 @@ class OpenAICompatibleService:
             raise last_exc
         raise RuntimeError(f"{self.provider_name} retry loop exhausted")
 
+    def _base_payload(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        model: str,
+        temperature: float,
+        stream: bool,
+    ) -> dict[str, Any]:
+        model = self.model_aliases.get(model, model)
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": stream,
+        }
+        # gpt-oss models reason before answering (returned in a separate
+        # `reasoning` field, so content parsing is unaffected). Low effort keeps
+        # each pipeline stage close to the latency of a non-reasoning model.
+        if model.startswith("openai/gpt-oss"):
+            payload["reasoning_effort"] = "low"
+        return payload
+
     def complete_chat(
         self,
         *,
@@ -112,12 +136,9 @@ class OpenAICompatibleService:
     ) -> ChatCompletionResult:
         """Non-streaming completion — used for the tool-decision round."""
         url = f"{self.base_url}/chat/completions"
-        payload: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "stream": False,
-        }
+        payload = self._base_payload(
+            messages=messages, model=model, temperature=temperature, stream=False
+        )
         if tools:
             payload["tools"] = tools
             if tool_choice is not None:
@@ -199,12 +220,9 @@ class OpenAICompatibleService:
         leave the sink empty and the estimate stands.
         """
         url = f"{self.base_url}/chat/completions"
-        payload: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "stream": True,
-        }
+        payload = self._base_payload(
+            messages=messages, model=model, temperature=temperature, stream=True
+        )
         if usage_sink is not None:
             payload["stream_options"] = {"include_usage": True}
         if tools:

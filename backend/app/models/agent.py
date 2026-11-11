@@ -20,7 +20,7 @@ class Agent(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    model_name: Mapped[str] = mapped_column(String(100), nullable=False, default="llama-3.1-8b-instant")
+    model_name: Mapped[str] = mapped_column(String(100), nullable=False, default="openai/gpt-oss-20b")
     project_id: Mapped[int] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,

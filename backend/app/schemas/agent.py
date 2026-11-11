@@ -8,7 +8,7 @@ class AgentCreate(BaseModel):
     project_id: int
     description: str | None = None
     system_prompt: str = Field(default="", max_length=20000)
-    model_name: str = Field(default="llama-3.1-8b-instant", min_length=1, max_length=100)
+    model_name: str = Field(default="openai/gpt-oss-20b", min_length=1, max_length=100)
     knowledge_base_ids: list[int] = Field(default_factory=list)
 
 

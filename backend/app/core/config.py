@@ -52,7 +52,7 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
-    groq_default_model: str = "llama-3.1-8b-instant"
+    groq_default_model: str = "openai/gpt-oss-20b"
 
     # From Docker on Windows/Mac, host machine Ollama is usually host.docker.internal
     ollama_base_url: str = "http://host.docker.internal:11434/v1"

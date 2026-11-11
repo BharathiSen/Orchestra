@@ -5,21 +5,30 @@ from app.services.openai_compatible_service import OpenAICompatibleService
 
 GROQ_MODELS = [
     {
-        "id": "llama-3.1-8b-instant",
-        "label": "Llama 3.1 8B (Groq)",
-        "description": "Free-tier friendly — great for local testing",
+        "id": "openai/gpt-oss-20b",
+        "label": "GPT-OSS 20B (Groq)",
+        "description": "Fast and free-tier friendly — the default",
     },
     {
-        "id": "llama-3.3-70b-versatile",
-        "label": "Llama 3.3 70B (Groq)",
+        "id": "openai/gpt-oss-120b",
+        "label": "GPT-OSS 120B (Groq)",
         "description": "Stronger Groq model (higher free-tier usage)",
     },
     {
-        "id": "gemma2-9b-it",
-        "label": "Gemma 2 9B (Groq)",
-        "description": "Google Gemma on Groq free tier",
+        "id": "qwen/qwen3.8-27b",
+        "label": "Qwen3.8 27B (Groq)",
+        "description": "Qwen on Groq",
     },
 ]
+
+# Groq decommissions models; agents, conversations and env vars created before
+# then still name them. Resolve those to a live replacement at call time
+# instead of failing every request with a 404 "model_not_found".
+GROQ_RETIRED_MODELS = {
+    "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+    "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+    "gemma2-9b-it": "openai/gpt-oss-20b",
+}
 
 OLLAMA_MODELS = [
     {
@@ -61,7 +70,8 @@ def is_llm_configured() -> bool:
 def get_default_model() -> str:
     provider = settings.active_llm_provider
     if provider == "groq":
-        return settings.groq_default_model
+        model = settings.groq_default_model
+        return GROQ_RETIRED_MODELS.get(model, model)
     if provider == "ollama":
         return settings.ollama_default_model
     return settings.gemini_default_model
@@ -75,6 +85,7 @@ def get_llm_service():
             base_url=settings.groq_base_url,
             api_key=settings.groq_api_key,
             provider_name="Groq",
+            model_aliases=GROQ_RETIRED_MODELS,
             missing_key_hint=(
                 "Groq API key is not configured. "
                 "Set GROQ_API_KEY in .env (https://console.groq.com/keys) "

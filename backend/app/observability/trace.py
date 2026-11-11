@@ -68,6 +68,12 @@ class TraceService:
         if snapshot:
             merged_snapshot.update(snapshot)
 
+        # A turn can still produce an answer after an agent failed (the
+        # pipeline falls back), but reporting it as a clean success hides the
+        # failure from the success rate. Record it as degraded instead.
+        if status == "completed" and any(s.status == "error" for s in tracker.steps):
+            status = "degraded"
+
         execution.status = status
         execution.final_response = final_response
         execution.error_detail = error_detail

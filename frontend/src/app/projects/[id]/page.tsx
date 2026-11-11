@@ -13,7 +13,7 @@ const emptyForm = {
   name: "",
   description: "",
   system_prompt: "",
-  model_name: "llama-3.1-8b-instant",
+  model_name: "openai/gpt-oss-20b",
   knowledge_base_ids: [] as number[],
 };
 
@@ -486,7 +486,7 @@ export default function ProjectDetailPage() {
                   setForm((f) => ({ ...f, model_name: e.target.value }))
                 }
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-accent focus:ring-2"
-                placeholder="llama-3.1-8b-instant"
+                placeholder="openai/gpt-oss-20b"
               />
             </label>
 

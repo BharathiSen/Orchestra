@@ -7,5 +7,7 @@ def reviewer_prompt() -> str:
         "Check the draft for clarity, grounding against research notes, and completeness. "
         "Return TWO sections:\n"
         "NOTES: 2-4 short bullet points of review notes\n"
-        "FINAL: the improved final answer for the user (rewrite if needed, keep accurate)."
+        "FINAL: the improved final answer for the user (rewrite if needed, keep accurate).\n"
+        "Write both labels exactly as shown — plain text, followed by a colon, "
+        "not as markdown headings or bold."
     )

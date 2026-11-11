@@ -23,7 +23,7 @@ class Conversation(Base):
         index=True,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False, default="New conversation")
-    model_name: Mapped[str] = mapped_column(String(100), nullable=False, default="llama-3.1-8b-instant")
+    model_name: Mapped[str] = mapped_column(String(100), nullable=False, default="openai/gpt-oss-20b")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

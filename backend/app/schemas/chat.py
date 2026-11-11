@@ -7,7 +7,7 @@ class ConversationCreate(BaseModel):
     project_id: int
     title: str = Field(default="New conversation", min_length=1, max_length=255)
     agent_id: int | None = None
-    model_name: str = Field(default="llama-3.1-8b-instant", min_length=1, max_length=100)
+    model_name: str = Field(default="openai/gpt-oss-20b", min_length=1, max_length=100)
 
 
 class ConversationUpdate(BaseModel):
@@ -45,7 +45,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=50000)
     conversation_id: int | None = None
     agent_id: int | None = None
-    model: str = Field(default="llama-3.1-8b-instant", min_length=1, max_length=100)
+    model: str = Field(default="openai/gpt-oss-20b", min_length=1, max_length=100)
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     system_prompt: str | None = Field(default=None, max_length=20000)
     enable_tools: bool = True
